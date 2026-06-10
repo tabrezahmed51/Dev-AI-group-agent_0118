@@ -1,15 +1,23 @@
-import { loadAuthConfig } from "../auth/workos.js";
+import { HookService } from "../hooks/HookService.js";
 import { initializeWithOnboarding } from "../onboarding.js";
+import {
+  setBetaSubagentToolEnabled,
+  setBetaUploadArtifactToolEnabled,
+} from "../tools/toolsConfig.js";
 import { logger } from "../util/logger.js";
 
 import { AgentFileService } from "./AgentFileService.js";
 import { ApiClientService } from "./ApiClientService.js";
+import { ArtifactUploadService } from "./ArtifactUploadService.js";
 import { AuthService } from "./AuthService.js";
+import { backgroundJobService } from "./BackgroundJobService.js";
 import { ChatHistoryService } from "./ChatHistoryService.js";
 import { ConfigService } from "./ConfigService.js";
 import { FileIndexService } from "./FileIndexService.js";
+import { GitAiIntegrationService } from "./GitAiIntegrationService.js";
 import { MCPService } from "./MCPService.js";
 import { ModelService } from "./ModelService.js";
+import { quizService } from "./QuizService.js";
 import { ResourceMonitoringService } from "./ResourceMonitoringService.js";
 import { serviceContainer } from "./ServiceContainer.js";
 import { StorageSyncService } from "./StorageSyncService.js";
@@ -43,6 +51,9 @@ const storageSyncService = new StorageSyncService();
 const agentFileService = new AgentFileService();
 const toolPermissionService = new ToolPermissionService();
 const systemMessageService = new SystemMessageService();
+const artifactUploadService = new ArtifactUploadService();
+const gitAiIntegrationService = new GitAiIntegrationService();
+const hookService = new HookService();
 
 /**
  * Initialize all services and register them with the service container
@@ -52,10 +63,17 @@ export async function initializeServices(initOptions: ServiceInitOptions = {}) {
   logger.debug("Initializing service registry");
 
   const commandOptions = initOptions.options || {};
+
+  // Configure beta tools based on command options
+  if (commandOptions.betaUploadArtifactTool) {
+    setBetaUploadArtifactToolEnabled(true);
+  }
+  if (commandOptions.betaSubagentTool) {
+    setBetaSubagentToolEnabled(true);
+  }
   // Handle onboarding for TUI mode (headless: false) unless explicitly skipped
   if (!initOptions.headless && !initOptions.skipOnboarding) {
-    const authConfig = loadAuthConfig();
-    await initializeWithOnboarding(authConfig, commandOptions.config);
+    await initializeWithOnboarding(null, commandOptions.config);
   }
 
   // Handle ANTHROPIC_API_KEY in headless mode when no config path is provided
@@ -181,17 +199,6 @@ export async function initializeServices(initOptions: ServiceInitOptions = {}) {
         serviceContainer.get<AgentFileServiceState>(SERVICE_NAMES.AGENT_FILE),
       ]);
 
-      // Ensure organization is selected if authenticated
-      let finalAuthState = authState;
-      if (authState.authConfig) {
-        finalAuthState = await authService.ensureOrganization(
-          initOptions.headless ?? false,
-          commandOptions.org,
-        );
-        // Update the auth service state in container
-        serviceContainer.set(SERVICE_NAMES.AUTH, finalAuthState);
-      }
-
       if (!apiClientState.apiClient) {
         throw new Error("API client not available");
       }
@@ -200,28 +207,15 @@ export async function initializeServices(initOptions: ServiceInitOptions = {}) {
       // otherwise use initial options.config (for first initialization)
       // IMPORTANT: Always prefer explicit --config flag over saved state
       const currentState = configService.getState();
-      let configPath =
+      const configPath =
         commandOptions.config ||
         (currentState.configPath === undefined
           ? undefined
           : currentState.configPath);
 
-      // If no config path is available, check for saved config URI in auth config
-      if (!configPath) {
-        const { getConfigUri } = await import("../auth/workos.js");
-        const { uriToPath, uriToSlug } = await import("../auth/uriUtils.js");
-        const configUri = getConfigUri(finalAuthState.authConfig);
-        if (configUri) {
-          const filePath = uriToPath(configUri);
-          const slug = uriToSlug(configUri);
-          configPath = filePath || slug || undefined;
-        }
-      }
-
       return await configService.initialize({
-        authConfig: finalAuthState.authConfig,
+        authConfig: authState.authConfig,
         configPath,
-        // organizationId: finalAuthState.organizationId || null,
         apiClient: apiClientState.apiClient,
         agentFileState,
         injectedConfigOptions: commandOptions,
@@ -291,9 +285,33 @@ export async function initializeServices(initOptions: ServiceInitOptions = {}) {
   );
 
   serviceContainer.register(
+    SERVICE_NAMES.ARTIFACT_UPLOAD,
+    () => artifactUploadService.initialize(),
+    [],
+  );
+
+  serviceContainer.register(
     SERVICE_NAMES.CHAT_HISTORY,
     () => chatHistoryService.initialize(undefined, initOptions.headless),
     [], // No dependencies for now, but could depend on SESSION in future
+  );
+
+  serviceContainer.register(
+    SERVICE_NAMES.GIT_AI_INTEGRATION,
+    () => gitAiIntegrationService.initialize(),
+    [], // No dependencies
+  );
+
+  serviceContainer.register(
+    SERVICE_NAMES.QUIZ,
+    () => quizService.initialize(),
+    [], // No dependencies
+  );
+
+  serviceContainer.register(
+    SERVICE_NAMES.HOOKS,
+    () => hookService.initialize(),
+    [], // No dependencies
   );
 
   // Eagerly initialize all services to ensure they're ready when needed
@@ -357,7 +375,14 @@ export const services = {
   storageSync: storageSyncService,
   agentFile: agentFileService,
   toolPermissions: toolPermissionService,
+  artifactUpload: artifactUploadService,
+  gitAiIntegration: gitAiIntegrationService,
+  backgroundJobs: backgroundJobService,
+  quiz: quizService,
+  hooks: hookService,
 } as const;
+
+export type ServicesType = typeof services;
 
 // Export the service container for advanced usage
 export { serviceContainer };

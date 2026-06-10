@@ -2,10 +2,8 @@ import {
   ArrowDownOnSquareIcon,
   PencilSquareIcon,
   TrashIcon,
-  CloudIcon,
 } from "@heroicons/react/24/outline";
 import { BaseSessionMetadata } from "core";
-import type { RemoteSessionMetadata } from "core/control-plane/client";
 import { getUriPathBasename } from "core/util/uri";
 import React, { useContext, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -16,12 +14,12 @@ import { exitEdit } from "../../redux/thunks/edit";
 import {
   deleteSession,
   getSession,
-  loadRemoteSession,
   loadSession,
   updateSession,
 } from "../../redux/thunks/session";
 import { isShareSessionSupported } from "../../util";
 import HeaderButtonWithToolTip from "../gui/HeaderButtonWithToolTip";
+import { ToolTip } from "../gui/Tooltip";
 
 const shareSessionSupported = isShareSessionSupported();
 
@@ -29,7 +27,7 @@ export function HistoryTableRow({
   sessionMetadata,
   index,
 }: {
-  sessionMetadata: BaseSessionMetadata | RemoteSessionMetadata;
+  sessionMetadata: BaseSessionMetadata;
   index: number;
 }) {
   const dispatch = useAppDispatch();
@@ -55,18 +53,10 @@ export function HistoryTableRow({
       });
     }
   };
-  const isRemote = "isRemote" in sessionMetadata && sessionMetadata.isRemote;
 
   const handleKeyUp = async (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       if (sessionTitleEditValue !== sessionMetadata.title) {
-        // Don't allow editing remote sessions
-        if (isRemote) {
-          setSessionTitleEditValue(sessionMetadata.title);
-          setEditing(false);
-          return;
-        }
-
         // imperfect solution of loading session just to update it
         // but fine for now, pretty low latency
         const currentSession = await getSession(
@@ -94,21 +84,6 @@ export function HistoryTableRow({
       data-testid={`history-row-${index}`}
       className="hover:bg-input relative mb-2 box-border flex w-full cursor-pointer overflow-hidden rounded-lg p-3"
       onClick={async () => {
-        // Handle remote sessions - load remote session data
-        if (isRemote) {
-          const remoteSession = sessionMetadata as RemoteSessionMetadata;
-          await dispatch(exitEdit({}));
-          await dispatch(
-            loadRemoteSession({
-              remoteId: remoteSession.remoteId,
-              saveCurrentSession: true,
-            }),
-          );
-          navigate("/");
-          return;
-        }
-
-        // Handle local sessions - load and navigate as before
         await dispatch(exitEdit({}));
         if (sessionMetadata.sessionId !== currentSessionId) {
           await dispatch(
@@ -139,10 +114,17 @@ export function HistoryTableRow({
             <span className="line-clamp-1 break-all text-sm font-semibold">
               {sessionMetadata.title}
             </span>
-            {isRemote && (
-              <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
-                Remote
-              </span>
+
+            {sessionMetadata.messageCount !== undefined && (
+              <ToolTip
+                content={`${sessionMetadata.messageCount} message${
+                  sessionMetadata.messageCount === 1 ? " is" : "s are"
+                } present in this session`}
+              >
+                <span className="bg-vsc-background text-secondary-foreground ml-auto inline-flex items-center rounded-full px-2 py-1 text-xs font-medium">
+                  {sessionMetadata.messageCount}
+                </span>
+              </ToolTip>
             )}
           </div>
         )}
@@ -166,20 +148,8 @@ export function HistoryTableRow({
       </td>
 
       {hovered && !editing && (
-        <td className="bg-input absolute right-2 top-1/2 ml-auto flex -translate-y-1/2 transform items-center gap-x-1 rounded-full px-2 py-1 shadow-md">
-          {isRemote ? (
-            <HeaderButtonWithToolTip
-              text="Open in browser"
-              onClick={async (e) => {
-                e.stopPropagation();
-                await ideMessenger.request("controlPlane/openUrl", {
-                  path: `/agents/${sessionMetadata.remoteId}`,
-                });
-              }}
-            >
-              <CloudIcon width="1em" height="1em" />
-            </HeaderButtonWithToolTip>
-          ) : (
+        <td className="bg-input absolute right-2 top-12 ml-auto flex -translate-y-1/2 transform items-center gap-x-1 rounded-full px-2 py-1 shadow-md">
+          {
             <>
               <HeaderButtonWithToolTip
                 text="Edit"
@@ -211,7 +181,7 @@ export function HistoryTableRow({
                 <TrashIcon width="1em" height="1em" />
               </HeaderButtonWithToolTip>
             </>
-          )}
+          }
         </td>
       )}
     </tr>

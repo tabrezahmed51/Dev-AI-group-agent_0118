@@ -180,41 +180,11 @@ export function HelpSection() {
           <Card className="!p-0">
             <div className="flex flex-col">
               <ConfigRow
-                title="Continue Hub"
-                description="Visit hub.continue.dev to explore custom agents and blocks"
-                icon={LinkIcon}
-                onClick={() =>
-                  ideMessenger.post("openUrl", "https://hub.continue.dev/")
-                }
-              />
-
-              <ConfigRow
                 title="Documentation"
                 description="Learn how to configure and use Continue"
                 icon={LinkIcon}
                 onClick={() =>
                   ideMessenger.post("openUrl", "https://docs.continue.dev/")
-                }
-              />
-
-              <ConfigRow
-                title="Have an issue?"
-                description="Let us know on GitHub and we'll do our best to resolve it"
-                icon={LinkIcon}
-                onClick={() =>
-                  ideMessenger.post(
-                    "openUrl",
-                    "https://github.com/continuedev/continue/issues/new/choose",
-                  )
-                }
-              />
-
-              <ConfigRow
-                title="Join the community!"
-                description="Join us on Discord to stay up-to-date on the latest developments"
-                icon={LinkIcon}
-                onClick={() =>
-                  ideMessenger.post("openUrl", "https://discord.gg/vapESyrFmJ")
                 }
               />
             </div>

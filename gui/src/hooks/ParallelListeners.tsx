@@ -8,8 +8,7 @@ import { setLastNonEditSessionEmpty } from "../redux/slices/editState";
 import { updateIndexingStatus } from "../redux/slices/indexingSlice";
 import {
   initializeProfilePreferences,
-  setOrganizations,
-  setSelectedOrgId,
+  setProfiles,
   setSelectedProfile,
 } from "../redux/slices/profilesSlice";
 import {
@@ -43,6 +42,9 @@ function ParallelListeners() {
   const selectedProfileId = useAppSelector(
     (store) => store.profiles.selectedProfileId,
   );
+  const reasoningSettings = useAppSelector(
+    (store) => store.ui.reasoningSettings,
+  );
   const hasDoneInitialConfigLoad = useRef(false);
 
   // Load symbols for chat on any session change
@@ -52,18 +54,15 @@ function ParallelListeners() {
 
   const handleConfigUpdate = useCallback(
     async (isInitial: boolean, result: FromCoreProtocol["configUpdate"][0]) => {
-      const {
-        result: configResult,
-        profileId,
-        organizations,
-        selectedOrgId,
-      } = result;
+      const { result: configResult, profileId, profiles } = result;
       if (isInitial && hasDoneInitialConfigLoad.current) {
         return;
       }
+      if (configResult.configLoadInterrupted || !configResult.config) {
+        return;
+      }
       hasDoneInitialConfigLoad.current = true;
-      dispatch(setOrganizations(organizations));
-      dispatch(setSelectedOrgId(selectedOrgId));
+      dispatch(setProfiles(profiles));
       dispatch(setSelectedProfile(profileId));
       dispatch(setConfigResult(configResult));
 
@@ -88,11 +87,18 @@ function ParallelListeners() {
       const supportsReasoning = modelSupportsReasoning(chatModel);
       const isReasoningDisabled =
         chatModel?.completionOptions?.reasoning === false;
+      const wasReasoningPreviouslyEnabled = chatModel?.title
+        ? reasoningSettings[chatModel.title] !== false
+        : true;
       dispatch(
-        setHasReasoningEnabled(supportsReasoning && !isReasoningDisabled),
+        setHasReasoningEnabled(
+          supportsReasoning &&
+            !isReasoningDisabled &&
+            wasReasoningPreviouslyEnabled,
+        ),
       );
     },
-    [dispatch, hasDoneInitialConfigLoad],
+    [dispatch, hasDoneInitialConfigLoad, selectedProfileId, reasoningSettings],
   );
 
   // Load config from the IDE
@@ -215,11 +221,6 @@ function ParallelListeners() {
 
   useWebviewListener("setInactive", async () => {
     void dispatch(cancelStream());
-  });
-
-  useWebviewListener("loadAgentSession", async (data) => {
-    dispatch(newSession(data.session));
-    dispatch(setMode("agent"));
   });
 
   useWebviewListener("setTTSActive", async (status) => {

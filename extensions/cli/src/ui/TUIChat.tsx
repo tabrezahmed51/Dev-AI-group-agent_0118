@@ -9,7 +9,6 @@ import React, {
 
 import { ToolPermissionServiceState } from "src/services/ToolPermissionService.js";
 
-import { listUserOrganizations } from "../auth/workos.js";
 import { useServices } from "../hooks/useService.js";
 import {
   ApiClientServiceState,
@@ -19,6 +18,8 @@ import {
   ModelServiceState,
   UpdateServiceState,
 } from "../services/types.js";
+import { getTotalSessionCost } from "../session.js";
+import { bashToolEvents } from "../util/cli.js";
 import { logger } from "../util/logger.js";
 
 import { ActionStatus } from "./components/ActionStatus.js";
@@ -111,40 +112,9 @@ function useTUIChatServices(remoteUrl?: string) {
   return { services, allServicesReady, isRemoteMode };
 }
 
-// Custom hook to fetch organization name
-function useOrganizationName(organizationId?: string): string | undefined {
-  const [organizationName, setOrganizationName] = useState<string | undefined>(
-    undefined,
-  );
-
-  useEffect(() => {
-    if (!organizationId) {
-      setOrganizationName(undefined);
-      return;
-    }
-
-    let isMounted = true;
-
-    async function fetchOrgName() {
-      try {
-        const orgs = await listUserOrganizations();
-        if (!isMounted) return;
-
-        const org = orgs?.find((o) => o.id === organizationId);
-        if (org) {
-          setOrganizationName(org.name);
-        }
-      } catch (error) {
-        logger.debug("Failed to fetch organization name", { error });
-      }
-    }
-
-    fetchOrgName();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [organizationId]);
+// Organization names are no longer available (Hub integration removed)
+function useOrganizationName(_organizationId?: string): string | undefined {
+  const organizationName = undefined;
 
   return organizationName;
 }
@@ -260,6 +230,7 @@ const TUIChat: React.FC<TUIChatProps> = ({
     compactionStartTime,
     inputMode,
     activePermissionRequest,
+    activeQuizQuestion,
     wasInterrupted,
     queuedMessages,
     handleUserMessage,
@@ -268,6 +239,7 @@ const TUIChat: React.FC<TUIChatProps> = ({
     resetChatHistory,
     handleEditMessage,
     handleToolPermissionResponse,
+    handleQuizAnswer,
   } = useChat({
     assistant: services.config?.config || undefined,
     model: services.model?.model || undefined,
@@ -282,6 +254,8 @@ const TUIChat: React.FC<TUIChatProps> = ({
     onShowMCPSelector: () => navigateTo("mcp"),
     onShowUpdateSelector: () => navigateTo("update"),
     onShowSessionSelector: () => navigateTo("session"),
+    onShowJobsSelector: () => navigateTo("jobs"),
+    onShowExportSelector: () => navigateTo("export"),
     onReload: handleReload,
     onClear: handleClear,
     onRefreshStatic: () => setStaticRefreshTrigger((prev) => prev + 1),
@@ -327,10 +301,77 @@ const TUIChat: React.FC<TUIChatProps> = ({
     [closeCurrentScreen, setChatHistory, setShowIntroMessage],
   );
 
+  // Export session handler
+  const handleExportSession = useCallback(
+    async (sessionId: string) => {
+      try {
+        const { loadSessionById } = await import("../session.js");
+        const fs = await import("fs");
+        const path = await import("path");
+
+        const session = loadSessionById(sessionId);
+        if (!session) {
+          setChatHistory((prev) => [
+            ...prev,
+            {
+              message: {
+                role: "system",
+                content: `Failed to export: Session ${sessionId} not found`,
+              },
+              contextItems: [],
+            },
+          ]);
+          closeCurrentScreen();
+          return;
+        }
+
+        const exportPayload = {
+          version: 1,
+          exportedAt: new Date().toISOString(),
+          session,
+        };
+
+        const defaultPath = path.join(
+          process.cwd(),
+          `continue-session-${session.sessionId}.json`,
+        );
+        const jsonOutput = JSON.stringify(exportPayload, null, 2);
+        fs.writeFileSync(defaultPath, jsonOutput, "utf-8");
+
+        setChatHistory((prev) => [
+          ...prev,
+          {
+            message: {
+              role: "system",
+              content: `Session exported to ${defaultPath}`,
+            },
+            contextItems: [],
+          },
+        ]);
+        closeCurrentScreen();
+      } catch (error: any) {
+        setChatHistory((prev) => [
+          ...prev,
+          {
+            message: {
+              role: "system",
+              content: `Failed to export session: ${error.message}`,
+            },
+            contextItems: [],
+          },
+        ]);
+        closeCurrentScreen();
+      }
+    },
+    [closeCurrentScreen, setChatHistory],
+  );
+
   // Determine if input should be disabled
   // Allow input even when services are loading, but disable for UI overlays
   const isInputDisabled =
-    navState.currentScreen !== "chat" || !!activePermissionRequest;
+    navState.currentScreen !== "chat" ||
+    !!activePermissionRequest ||
+    !!activeQuizQuestion;
 
   // Check if verbose mode is enabled for resource debugging
   const isVerboseMode = useMemo(() => process.argv.includes("--verbose"), []);
@@ -340,6 +381,22 @@ const TUIChat: React.FC<TUIChatProps> = ({
 
   // Fetch organization name based on auth state
   const organizationName = useOrganizationName(services.auth?.organizationId);
+
+  // Track if a Bash tool is currently running via events
+  const [isBashToolRunning, setIsBashToolRunning] = useState(false);
+
+  useEffect(() => {
+    const handleStarted = () => setIsBashToolRunning(true);
+    const handleEnded = () => setIsBashToolRunning(false);
+
+    bashToolEvents.on("started", handleStarted);
+    bashToolEvents.on("ended", handleEnded);
+
+    return () => {
+      bashToolEvents.off("started", handleStarted);
+      bashToolEvents.off("ended", handleEnded);
+    };
+  }, []);
 
   return (
     <Box flexDirection="column" height="100%">
@@ -379,6 +436,9 @@ const TUIChat: React.FC<TUIChatProps> = ({
           startTime={responseStartTime || 0}
           message=""
           showSpinner={true}
+          additionalHint={
+            isBashToolRunning ? "ctrl+b to background" : undefined
+          }
         />
 
         {/* Compaction Status */}
@@ -406,10 +466,13 @@ const TUIChat: React.FC<TUIChatProps> = ({
           handleConfigSelect={handleConfigSelect}
           handleModelSelect={handleModelSelect}
           handleSessionSelect={handleSessionSelect}
+          handleExportSession={handleExportSession}
           handleReload={handleReload}
           closeCurrentScreen={closeCurrentScreen}
           activePermissionRequest={activePermissionRequest}
+          activeQuizQuestion={activeQuizQuestion}
           handleToolPermissionResponse={handleToolPermissionResponse}
+          handleQuizAnswer={handleQuizAnswer}
           handleUserMessage={handleUserMessage}
           isWaitingForResponse={isWaitingForResponse}
           isCompacting={isCompacting}
@@ -431,7 +494,7 @@ const TUIChat: React.FC<TUIChatProps> = ({
           <ResourceDebugBar visible={navState.currentScreen === "chat"} />
         )}
 
-        {/* Free trial status and Continue CLI info - always show */}
+        {/* Bottom status bar */}
         <BottomStatusBar
           currentMode={services?.toolPermissions?.currentMode ?? "normal"}
           remoteUrl={remoteUrl}
@@ -442,6 +505,8 @@ const TUIChat: React.FC<TUIChatProps> = ({
           closeCurrentScreen={closeCurrentScreen}
           contextPercentage={contextData?.percentage}
           hasImageInClipboard={hasImageInClipboard}
+          isVerboseMode={isVerboseMode}
+          totalCost={getTotalSessionCost()}
         />
       </Box>
     </Box>

@@ -1,34 +1,30 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { Registry } from "./interfaces/index.js";
-import { FullSlug, PackageIdentifier } from "./interfaces/slugs.js";
+import { PackageIdentifier } from "./interfaces/slugs.js";
 
 interface RegistryClientOptions {
-  accessToken?: string;
-  apiBase?: string;
   rootPath?: string;
 }
 
 export class RegistryClient implements Registry {
-  private readonly accessToken?: string;
-  private readonly apiBase: string;
   private readonly rootPath?: string;
 
   constructor(options: RegistryClientOptions = {}) {
-    this.accessToken = options.accessToken;
-    this.apiBase = options.apiBase ?? "https://api.continue.dev/";
     this.rootPath = options.rootPath;
-    if (!this.apiBase.endsWith("/")) {
-      this.apiBase += "/";
-    }
   }
 
   async getContent(id: PackageIdentifier): Promise<string> {
+    // Return pre-read content if available (for vscode-remote:// URIs in WSL)
+    if (id.uriType === "file" && id.content !== undefined) {
+      return id.content;
+    }
+
     switch (id.uriType) {
       case "file":
         return this.getContentFromFilePath(id.fileUri);
       case "slug":
-        return this.getContentFromSlug(id.fullSlug);
+        throw new Error("Slug-based package resolution is not supported");
       default:
         throw new Error(
           `Unknown package identifier type: ${(id as any).uriType}`,
@@ -43,25 +39,17 @@ export class RegistryClient implements Registry {
       return fs.readFileSync(new URL(filepath), "utf8");
     } else if (path.isAbsolute(filepath)) {
       return fs.readFileSync(filepath, "utf8");
-    } else if (this.rootPath) {
-      return fs.readFileSync(path.join(this.rootPath, filepath), "utf8");
     } else {
+      // Try to resolve relative to current working directory first
+      const resolvedPath = path.resolve(filepath);
+      if (fs.existsSync(resolvedPath)) {
+        return fs.readFileSync(resolvedPath, "utf8");
+      }
+      // Fall back to rootPath if file doesn't exist relative to cwd
+      if (this.rootPath) {
+        return fs.readFileSync(path.join(this.rootPath, filepath), "utf8");
+      }
       throw new Error("No rootPath provided for relative file path");
     }
-  }
-
-  private async getContentFromSlug(fullSlug: FullSlug): Promise<string> {
-    const response = await fetch(
-      `${this.apiBase}registry/v1/${fullSlug.ownerSlug}/${fullSlug.packageSlug}/${fullSlug.versionSlug}`,
-      {
-        headers: {
-          ...(this.accessToken
-            ? { Authorization: `Bearer ${this.accessToken}` }
-            : {}),
-        },
-      },
-    );
-    const data = await response.json();
-    return data.content;
   }
 }

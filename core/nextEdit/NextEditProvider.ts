@@ -21,6 +21,7 @@ import { AutocompleteInput } from "../autocomplete/util/types.js";
 import { isSecurityConcern } from "../indexing/ignore.js";
 import { modelSupportsNextEdit } from "../llm/autodetect.js";
 import { localPathOrUriToPath } from "../util/pathToUri.js";
+import { EditAggregator } from "./context/aggregateEdits.js";
 import { createDiff, DiffFormatType } from "./context/diffFormatting.js";
 import { DocumentHistoryTracker } from "./DocumentHistoryTracker.js";
 import { NextEditLoggingService } from "./NextEditLoggingService.js";
@@ -152,16 +153,9 @@ export class NextEditProvider {
       llm.completionOptions.temperature = 0.01;
     }
 
-    if (llm instanceof OpenAI) {
+    if (llm instanceof OpenAI && llm.providerName !== "openrouter") {
       llm.useLegacyCompletionsEndpoint = true;
     }
-    // TODO: Resolve import error with TRIAL_FIM_MODEL
-    // else if (
-    //   llm.providerName === "free-trial" &&
-    //   llm.model !== TRIAL_FIM_MODEL
-    // ) {
-    //   llm.model = TRIAL_FIM_MODEL;
-    // }
 
     return llm;
   }
@@ -399,13 +393,28 @@ export class NextEditProvider {
         opts?.usingFullFileDiff ?? false,
       );
 
+    // Build diffContext including in-progress edits
+    // The finalized diffs are in this.diffContext, but we also need to include
+    // any in-progress edits that haven't been finalized yet (the user's most recent typing)
+    const combinedDiffContext = [...this.diffContext];
+    try {
+      const inProgressDiff = EditAggregator.getInstance().getInProgressDiff(
+        helper.filepath,
+      );
+      if (inProgressDiff) {
+        combinedDiffContext.push(inProgressDiff);
+      }
+    } catch (e) {
+      // EditAggregator may not be initialized yet, ignore
+    }
+
     // Build context for model-specific prompt generation.
     const context: ModelSpecificContext = {
       helper,
       snippetPayload,
       editableRegionStartLine,
       editableRegionEndLine,
-      diffContext: this.diffContext,
+      diffContext: combinedDiffContext,
       autocompleteContext: this.autocompleteContext,
       historyDiff: createDiff({
         beforeContent:
@@ -494,9 +503,6 @@ export class NextEditProvider {
     let outcome: NextEditOutcome | undefined;
 
     // Handle based on diff type.
-    const profileType =
-      this.configHandler.currentProfile?.profileDescription.profileType;
-
     if (opts?.usingFullFileDiff === false || !opts?.usingFullFileDiff) {
       outcome = await this.modelProvider.handlePartialFileDiff({
         helper,
@@ -507,7 +513,6 @@ export class NextEditProvider {
         nextCompletion,
         promptMetadata: this.promptMetadata!,
         ide: this.ide,
-        profileType,
       });
     } else {
       outcome = await this.modelProvider.handleFullFileDiff({
@@ -519,7 +524,6 @@ export class NextEditProvider {
         nextCompletion,
         promptMetadata: this.promptMetadata!,
         ide: this.ide,
-        profileType,
       });
     }
 

@@ -13,7 +13,6 @@ export const WEBVIEW_TO_CORE_PASS_THROUGH: (keyof ToCoreFromWebviewProtocol)[] =
     "history/list",
     "history/delete",
     "history/load",
-    "history/loadRemote",
     "history/save",
     "history/clear",
     "devdata/log",
@@ -23,6 +22,7 @@ export const WEBVIEW_TO_CORE_PASS_THROUGH: (keyof ToCoreFromWebviewProtocol)[] =
     "config/ideSettingsUpdate",
     "config/addLocalWorkspaceBlock",
     "config/addGlobalRule",
+    "config/deleteRule",
     "config/getSerializedProfileInfo",
     "config/deleteModel",
     "config/refreshProfiles",
@@ -79,17 +79,14 @@ export const WEBVIEW_TO_CORE_PASS_THROUGH: (keyof ToCoreFromWebviewProtocol)[] =
     "onboarding/complete",
     "addAutocompleteModel",
     "didChangeSelectedProfile",
-    "didChangeSelectedOrg",
     "tools/call",
     "tools/evaluatePolicy",
     "tools/preprocessArgs",
-    "controlPlane/getEnvironment",
-    "controlPlane/getCreditStatus",
-    "controlPlane/openUrl",
     "isItemTooBig",
     "process/markAsBackgrounded",
     "process/isBackgrounded",
     "process/killTerminalProcess",
+    "models/fetch",
   ];
 
 // Message types to pass through from core to webview
@@ -109,5 +106,4 @@ export const CORE_TO_WEBVIEW_PASS_THROUGH: (keyof ToWebviewFromCoreProtocol)[] =
     "sessionUpdate",
     "didCloseFiles",
     "toolCallPartialOutput",
-    "freeTrialExceeded",
   ];

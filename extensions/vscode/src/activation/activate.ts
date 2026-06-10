@@ -1,9 +1,8 @@
 import { getContinueRcPath, getTsConfigPath } from "core/util/paths";
-import { Telemetry } from "core/util/posthog";
 import * as vscode from "vscode";
 
 import { VsCodeExtension } from "../extension/VsCodeExtension";
-import { getExtensionVersion, isUnsupportedPlatform } from "../util/util";
+import { isUnsupportedPlatform } from "../util/util";
 
 import { GlobalContext } from "core/util/GlobalContext";
 import { VsCodeContinueApi } from "./api";
@@ -23,16 +22,6 @@ export async function activateExtension(context: vscode.ExtensionContext) {
     void vscode.window.showInformationMessage(
       `Continue detected that you are using ${platformTarget}. Due to native dependencies, Continue may not be able to start`,
     );
-
-    void Telemetry.capture(
-      "unsupported_platform_activation_attempt",
-      {
-        platform: platformTarget,
-        extensionVersion: getExtensionVersion(),
-        reason: platformCheck.reason,
-      },
-      true,
-    );
   }
 
   // Add necessary files
@@ -47,18 +36,12 @@ export async function activateExtension(context: vscode.ExtensionContext) {
   // Load Continue configuration
   if (!context.globalState.get("hasBeenInstalled")) {
     void context.globalState.update("hasBeenInstalled", true);
-    void Telemetry.capture(
-      "install",
-      {
-        extensionVersion: getExtensionVersion(),
-      },
-      true,
-    );
   }
 
   // Register config.yaml schema by removing old entries and adding new one (uri.fsPath changes with each version)
   const yamlMatcher = ".continue/**/*.yaml";
   const yamlConfig = vscode.workspace.getConfiguration("yaml");
+  const yamlSchemas = yamlConfig.get<object>("schemas", {});
 
   const newPath = vscode.Uri.joinPath(
     context.extension.extensionUri,
@@ -68,7 +51,10 @@ export async function activateExtension(context: vscode.ExtensionContext) {
   try {
     await yamlConfig.update(
       "schemas",
-      { [newPath]: [yamlMatcher] },
+      {
+        ...yamlSchemas,
+        [newPath]: [yamlMatcher],
+      },
       vscode.ConfigurationTarget.Global,
     );
   } catch (error) {

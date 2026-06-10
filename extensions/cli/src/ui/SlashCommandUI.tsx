@@ -1,8 +1,11 @@
 import { type AssistantConfig } from "@continuedev/sdk";
 import { Box, Text } from "ink";
-import React, { useMemo } from "react";
+import React, { useEffect, useState } from "react";
 
-import { getAllSlashCommands } from "../commands/commands.js";
+import {
+  getAllSlashCommands,
+  type SlashCommand,
+} from "../commands/commands.js";
 
 const MAX_DESCRIPTION_LENGTH = 80;
 
@@ -20,30 +23,44 @@ interface SlashCommandUIProps {
   assistant?: AssistantConfig;
   filter: string;
   selectedIndex: number;
-  isRemoteMode?: boolean;
 }
 
 const SlashCommandUI: React.FC<SlashCommandUIProps> = ({
   assistant,
   filter,
   selectedIndex,
-  isRemoteMode = false,
 }) => {
-  // Memoize the slash commands to prevent excessive re-renders
-  const allCommands = useMemo(() => {
-    if (assistant || isRemoteMode) {
-      return getAllSlashCommands(assistant || ({} as AssistantConfig), {
-        isRemoteMode,
-      });
-    }
-
+  const [allCommands, setAllCommands] = useState<SlashCommand[]>(
     // Fallback - basic commands without assistant
-    return [
-      { name: "help", description: "Show help message" },
-      { name: "clear", description: "Clear the chat history" },
-      { name: "exit", description: "Exit the chat" },
-    ];
-  }, [isRemoteMode, assistant?.prompts, assistant?.rules]);
+    [
+      { name: "help", description: "Show help message", category: "system" },
+      {
+        name: "clear",
+        description: "Clear the chat history",
+        category: "system",
+      },
+      { name: "exit", description: "Exit the chat", category: "system" },
+    ],
+  );
+
+  useEffect(() => {
+    let stale = false;
+
+    const loadCommands = async () => {
+      if (assistant) {
+        const commands = await getAllSlashCommands(assistant);
+        if (!stale) {
+          setAllCommands(commands);
+        }
+      }
+    };
+
+    void loadCommands();
+
+    return () => {
+      stale = true;
+    };
+  }, [assistant?.prompts, assistant?.rules]);
 
   // Filter commands based on the current filter
   const filteredCommands = allCommands

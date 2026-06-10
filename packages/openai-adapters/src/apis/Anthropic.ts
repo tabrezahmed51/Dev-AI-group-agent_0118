@@ -40,6 +40,7 @@ import {
   CachingStrategyName,
 } from "./AnthropicCachingStrategies.js";
 import {
+  addCacheControlToLastTwoUserMessages,
   getAnthropicHeaders,
   getAnthropicMediaTypeFromDataUrl,
   openAiToolChoiceToAnthropicToolChoice,
@@ -73,7 +74,15 @@ export class AnthropicApi implements BaseLlmApi {
     // Step 2: Apply caching strategy
     const cachingStrategy =
       CACHING_STRATEGIES[this.config.cachingStrategy ?? "systemAndTools"];
-    return cachingStrategy(cleanBody);
+    const result = cachingStrategy(cleanBody);
+
+    // Step 3: Cache last two user messages for conversation turn caching
+    // Skip when caching is disabled
+    if ((this.config.cachingStrategy ?? "systemAndTools") !== "none") {
+      addCacheControlToLastTwoUserMessages(result.messages);
+    }
+
+    return result;
   }
 
   private maxTokensForModel(model: string): number {
@@ -324,7 +333,7 @@ export class AnthropicApi implements BaseLlmApi {
       id: completion.id,
       object: "chat.completion",
       model: body.model,
-      created: Date.now(),
+      created: Math.floor(Date.now() / 1000),
       usage: {
         total_tokens: (usage?.input_tokens ?? 0) + (usage?.output_tokens ?? 0),
         completion_tokens: usage?.output_tokens ?? 0,
@@ -456,7 +465,7 @@ export class AnthropicApi implements BaseLlmApi {
 
   private getHeaders(): Record<string, string> {
     const enableCaching = this.config?.cachingStrategy !== "none";
-    return getAnthropicHeaders(this.config.apiKey, enableCaching);
+    return getAnthropicHeaders(this.config.apiKey, enableCaching, this.apiBase);
   }
 
   async completionNonStream(

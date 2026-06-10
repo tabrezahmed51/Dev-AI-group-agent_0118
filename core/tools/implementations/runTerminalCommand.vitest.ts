@@ -1,20 +1,21 @@
-import {
-  describe,
-  it,
-  expect,
-  beforeEach,
-  afterEach,
-  afterAll,
-  vi,
-} from "vitest";
 import * as childProcess from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { IDE, ToolExtras } from "../..";
 import * as processTerminalStates from "../../util/processTerminalStates";
-import { runTerminalCommandImpl } from "./runTerminalCommand";
 import { runTerminalCommandTool } from "../definitions/runTerminalCommand";
+import { runTerminalCommandImpl } from "./runTerminalCommand";
 
 // We're using real child processes, so ensure these aren't mocked
 vi.unmock("node:child_process");
@@ -270,11 +271,8 @@ describe("runTerminalCommandImpl", () => {
 
     // In remote environments, it should use the IDE's runCommand
     expect(mockRunCommand).toHaveBeenCalledWith("echo 'test'");
-    // Match the actual output message
-    expect(result[0].content).toContain("Terminal output not available");
-    expect(result[0].content).toContain("SSH environments");
-    // Verify status field indicates command failed in remote environments
-    expect(result[0].status).toBe("Command failed");
+    expect(result[0].content).toContain("Command executed in remote terminal");
+    expect(result[0].status).toBe("Command executed");
   });
 
   it("should handle errors when executing invalid commands", async () => {
@@ -475,6 +473,267 @@ describe("runTerminalCommandImpl", () => {
       }
       process.cwd = originalCwd;
     }
+  });
+
+  describe("cwd handling", () => {
+    describe("workspace directory handling", () => {
+      it("should use file:// URI when available", async () => {
+        const fileUri = "file:///home/user/workspace";
+        mockGetWorkspaceDirs.mockResolvedValue([fileUri]);
+
+        // We can't easily test the internal cwd without mocking child_process,
+        // but we can verify the function doesn't throw with file URIs
+        await expect(
+          runTerminalCommandImpl(
+            { command: "echo test", waitForCompletion: false },
+            createMockExtras(),
+          ),
+        ).resolves.toBeDefined();
+      });
+
+      it("should skip non-file URIs and use the first file:// URI", async () => {
+        const workspaceDirs = [
+          "vscode-vfs://github/user/repo",
+          "untitled:/Untitled-1",
+          "file:///home/user/workspace",
+          "file:///home/user/other-workspace",
+        ];
+        mockGetWorkspaceDirs.mockResolvedValue(workspaceDirs);
+
+        await expect(
+          runTerminalCommandImpl(
+            { command: "echo test", waitForCompletion: false },
+            createMockExtras(),
+          ),
+        ).resolves.toBeDefined();
+      });
+
+      it("should handle workspace with only non-file URIs", async () => {
+        const workspaceDirs = [
+          "vscode-vfs://github/user/repo",
+          "untitled:/Untitled-1",
+        ];
+        mockGetWorkspaceDirs.mockResolvedValue(workspaceDirs);
+
+        // Should fall back to HOME/USERPROFILE or process.cwd() without throwing
+        await expect(
+          runTerminalCommandImpl(
+            { command: "echo test", waitForCompletion: false },
+            createMockExtras(),
+          ),
+        ).resolves.toBeDefined();
+      });
+
+      it("should handle empty workspace directories", async () => {
+        mockGetWorkspaceDirs.mockResolvedValue([]);
+
+        // Should fall back to HOME/USERPROFILE or process.cwd() without throwing
+        await expect(
+          runTerminalCommandImpl(
+            { command: "echo test", waitForCompletion: false },
+            createMockExtras(),
+          ),
+        ).resolves.toBeDefined();
+      });
+
+      it("should properly convert file:// URIs to paths", () => {
+        const fileUri = "file:///home/user/workspace";
+        const expectedPath = "/home/user/workspace";
+
+        // Test that fileURLToPath works correctly with file:// URIs
+        expect(fileURLToPath(fileUri)).toBe(expectedPath);
+      });
+
+      it("should throw error when trying to convert non-file URI", () => {
+        const nonFileUri = "vscode-vfs://github/user/repo";
+
+        // This demonstrates why the fix is needed - fileURLToPath throws on non-file URIs
+        expect(() => fileURLToPath(nonFileUri)).toThrow();
+      });
+
+      it("should handle vscode-remote URIs by extracting pathname", async () => {
+        // Various remote URI formats that VS Code uses
+        const remoteUris = [
+          "vscode-remote://wsl+Ubuntu/home/user/project",
+          "vscode-remote://ssh-remote+myserver/home/user/project",
+          "vscode-remote://dev-container+abc123/workspace",
+        ];
+
+        for (const uri of remoteUris) {
+          mockGetWorkspaceDirs.mockResolvedValue([uri]);
+
+          // Should not throw - the generic URI handler extracts the pathname
+          await expect(
+            runTerminalCommandImpl(
+              { command: "echo test", waitForCompletion: false },
+              createMockExtras(),
+            ),
+          ).resolves.toBeDefined();
+        }
+      });
+
+      it("should decode URI-encoded characters in remote workspace paths", async () => {
+        // Path with spaces and special characters
+        const encodedUri =
+          "vscode-remote://wsl+Ubuntu/home/user/my%20project%20%28test%29";
+        mockGetWorkspaceDirs.mockResolvedValue([encodedUri]);
+
+        // Should handle without throwing - decodeURIComponent is applied
+        await expect(
+          runTerminalCommandImpl(
+            { command: "echo test", waitForCompletion: false },
+            createMockExtras(),
+          ),
+        ).resolves.toBeDefined();
+      });
+
+      it("should prefer file:// URIs over remote URIs when both present", async () => {
+        const workspaceDirs = [
+          "vscode-remote://wsl+Ubuntu/home/user/remote-project",
+          "file:///home/user/local-project",
+        ];
+        mockGetWorkspaceDirs.mockResolvedValue(workspaceDirs);
+
+        // Should succeed, preferring the file:// URI
+        await expect(
+          runTerminalCommandImpl(
+            { command: "echo test", waitForCompletion: false },
+            createMockExtras(),
+          ),
+        ).resolves.toBeDefined();
+      });
+    });
+
+    describe("remote environment handling", () => {
+      it("should use ide.runCommand for remote environments", async () => {
+        const extras = createMockExtras({
+          remoteName: "some-unsupported-remote",
+        });
+
+        const result = await runTerminalCommandImpl(
+          { command: "echo test" },
+          extras,
+        );
+
+        expect(mockRunCommand).toHaveBeenCalledWith("echo test");
+        expect(result[0].content).toContain(
+          "Command executed in remote terminal",
+        );
+      });
+
+      it("should handle local environment with file URIs", async () => {
+        mockGetWorkspaceDirs.mockResolvedValue(["file:///home/user/workspace"]);
+
+        await expect(
+          runTerminalCommandImpl(
+            { command: "echo test", waitForCompletion: false },
+            createMockExtras({ remoteName: "local" }),
+          ),
+        ).resolves.toBeDefined();
+      });
+
+      it("should use ide.runCommand for WSL environment", async () => {
+        // WSL is a remote — commands should execute in WSL, not on the host
+        const extras = createMockExtras({ remoteName: "wsl" });
+
+        const result = await runTerminalCommandImpl(
+          { command: "echo test" },
+          extras,
+        );
+
+        expect(mockRunCommand).toHaveBeenCalledWith("echo test");
+        expect(result[0].content).toContain(
+          "Command executed in remote terminal",
+        );
+      });
+
+      it("should use ide.runCommand for dev-container environment", async () => {
+        const extras = createMockExtras({ remoteName: "dev-container" });
+
+        const result = await runTerminalCommandImpl(
+          { command: "echo test" },
+          extras,
+        );
+
+        expect(mockRunCommand).toHaveBeenCalledWith("echo test");
+        expect(result[0].content).toContain(
+          "Command executed in remote terminal",
+        );
+      });
+    });
+
+    describe("fallback behavior", () => {
+      it("should use HOME environment variable as fallback", async () => {
+        const originalHome = process.env.HOME;
+        process.env.HOME = "/home/testuser";
+
+        mockGetWorkspaceDirs.mockResolvedValue([
+          "vscode-vfs://github/user/repo",
+        ]);
+
+        try {
+          await expect(
+            runTerminalCommandImpl(
+              { command: "echo test", waitForCompletion: false },
+              createMockExtras(),
+            ),
+          ).resolves.toBeDefined();
+        } finally {
+          process.env.HOME = originalHome;
+        }
+      });
+
+      it("should use USERPROFILE on Windows as fallback", async () => {
+        const originalHome = process.env.HOME;
+        const originalUserProfile = process.env.USERPROFILE;
+
+        delete process.env.HOME;
+        process.env.USERPROFILE = "C:\\Users\\TestUser";
+
+        mockGetWorkspaceDirs.mockResolvedValue([]);
+
+        try {
+          await expect(
+            runTerminalCommandImpl(
+              { command: "echo test", waitForCompletion: false },
+              createMockExtras(),
+            ),
+          ).resolves.toBeDefined();
+        } finally {
+          process.env.HOME = originalHome;
+          process.env.USERPROFILE = originalUserProfile;
+        }
+      });
+
+      it("should use os.tmpdir() as final fallback", async () => {
+        const originalHome = process.env.HOME;
+        const originalUserProfile = process.env.USERPROFILE;
+        const originalCwd = process.cwd;
+
+        delete process.env.HOME;
+        delete process.env.USERPROFILE;
+        // Mock process.cwd to throw an error
+        process.cwd = vi.fn().mockImplementation(() => {
+          throw new Error("No cwd available");
+        }) as typeof process.cwd;
+
+        mockGetWorkspaceDirs.mockResolvedValue([]);
+
+        try {
+          // Should fall back to os.tmpdir() without throwing
+          await expect(
+            runTerminalCommandImpl(
+              { command: "echo test", waitForCompletion: false },
+              createMockExtras(),
+            ),
+          ).resolves.toBeDefined();
+        } finally {
+          process.env.HOME = originalHome;
+          process.env.USERPROFILE = originalUserProfile;
+          process.cwd = originalCwd;
+        }
+      });
+    });
   });
 });
 

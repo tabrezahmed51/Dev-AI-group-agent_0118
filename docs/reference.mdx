@@ -45,7 +45,9 @@ The top-level properties in the `config.yaml` configuration file are:
 The `name` property specifies the name of your project or configuration.
 
 ```yaml title="config.yaml"
-name: MyProject
+name: My Config
+version: 1.0.0
+schema: v1
 ```
 
 ---
@@ -85,7 +87,7 @@ The `models` section defines the language models used in your configuration. Mod
 
 - `maxStopWords`: Maximum number of stop words allowed, to avoid API errors with extensive lists.
 
-- `promptTemplates`: Can be used to override the default prompt templates for different model roles. Valid values are [`chat`](), [`edit`](/customize/model-roles/edit#edit-prompt-templating), [`apply`](/customize/model-roles/apply#apply-prompt-templating) and [`autocomplete`](/customize/model-roles/autocomplete#autocomplete-prompt-templating). The `chat` property must be a valid template name, such as `llama3` or `anthropic`.
+- `promptTemplates`: Can be used to override the default prompt templates for different model roles. Valid values are [`chat`](), [`edit`](/customize/model-roles/edit#prompt-templating), [`apply`](/customize/model-roles/apply#prompt-templating) and [`autocomplete`](/customize/model-roles/autocomplete#prompt-templating). The `chat` property must be a valid template name, such as `llama3` or `anthropic`.
 
 - `chatOptions`: If the model includes role `chat`, these settings apply for Agent and Chat mode:
 
@@ -108,6 +110,7 @@ The `models` section defines the language models used in your configuration. Mod
   - `stop`: An array of stop tokens that will terminate the completion.
   - `reasoning`: Boolean to enable thinking/reasoning for Anthropic Claude 3.7+ and some Ollama models.
   - `reasoningBudgetTokens`: Budget tokens for thinking/reasoning in Anthropic Claude 3.7+ models.
+  - `keepAlive`: For Ollama, the number of seconds to keep the model loaded after the last request (default: `1800`).
 
 - `requestOptions`: HTTP request options specific to the model.
 
@@ -149,6 +152,9 @@ The `models` section defines the language models used in your configuration. Mod
 **Example:**
 
 ```yaml title="config.yaml"
+name: My Config
+version: 1.0.0
+schema: v1
 models:
   - name: GPT-4o
     provider: openai
@@ -198,6 +204,9 @@ More information about usage/params for each context provider can be found [here
 **Example:**
 
 ```yaml title="config.yaml"
+name: My Config
+version: 1.0.0
+schema: v1
 context:
   - provider: file
   - provider: code
@@ -218,8 +227,11 @@ Rules are concatenated into the system message for all [Agent](/ide-extensions/a
 Confiugration example:
 
 ```yaml title="config.yaml"
+name: My Config
+version: 1.0.0
+schema: v1
 rules:
-  - uses: sanity/sanity-opinionated # rules file stored on Continue Mission Control
+  - uses: sanity/sanity-opinionated
   - uses: file://user/Desktop/rules.md # rules file stored on local computer
 ```
 
@@ -244,8 +256,11 @@ Prompts can be invoked with a <kbd>/</kbd> command.
 Configuration example:
 
 ```yaml title="config.yaml"
+name: My Config
+version: 1.0.0
+schema: v1
 prompts:
-  - uses: supabase/create-functions # prompts file stored on Continue Mission Control 
+  - uses: supabase/create-functions
   - uses: file://user/Desktop/prompts.md # prompts file stored on local computer
 ```
 
@@ -278,6 +293,9 @@ List of documentation sites to index.
 **Example:**
 
 ```yaml title="config.yaml"
+name: My Config
+version: 1.0.0
+schema: v1
 docs:
   - name: Continue
     startUrl: https://docs.continue.dev/intro
@@ -303,6 +321,9 @@ The [Model Context Protocol](https://modelcontextprotocol.io/introduction) is a 
 **Example:**
 
 ```yaml title="config.yaml"
+name: My Config
+version: 1.0.0
+schema: v1
 mcpServers:
   - name: My MCP Server
     command: uvx
@@ -334,6 +355,9 @@ Destinations to which [development data](/customize/deep-dives/development-data)
 **Example:**
 
 ```yaml title="config.yaml"
+name: My Config
+version: 1.0.0
+schema: v1
 data:
   - name: Local Data Bank
     destination: file:///Users/dallin/Documents/code/continuedev/continue-extras/external-data
@@ -355,11 +379,11 @@ data:
 Putting it all together, here's a complete example of a `config.yaml` configuration file:
 
 ```yaml title="config.yaml"
-name: MyProject
-version: 0.0.1
+name: My Config
+version: 1.0.0
 schema: v1
 models:
-  - uses: anthropic/claude-3.5-sonnet
+  - uses: anthropic/claude-sonnet-4-6
     with:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     override:
@@ -423,15 +447,15 @@ data:
       - chatInteraction
 ```
 
-## Using YAML anchors to avoid config duplication
+## Using YAML Anchors to Avoid Config Duplication
 
 You can also use node anchors to avoid duplication of properties. To do so, adding the YAML version header `%YAML 1.1` is needed, here's an example of a `config.yaml` configuration file using anchors:
 
 ```yaml title="config.yaml"
 %YAML 1.1
 ---
-name: MyProject
-version: 0.0.1
+name: My Config
+version: 1.0.0
 schema: v1
 model_defaults: &model_defaults
   provider: openai

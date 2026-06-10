@@ -8,8 +8,6 @@ import {
   type MockedFunction,
 } from "vitest";
 
-import { AuthenticatedConfig } from "./auth/workos-types.js";
-import type { AuthConfig } from "./auth/workos.js";
 import type { ConfigServiceState } from "./services/types.js";
 import { handleSlashCommands } from "./slashCommands.js";
 
@@ -19,24 +17,13 @@ vi.mock("./services/index.js", () => ({
     config: {
       getState: vi.fn(),
     },
+    model: {
+      getModelInfo: vi.fn(),
+    },
   },
   reloadService: vi.fn(),
   SERVICE_NAMES: {
     AUTH: "AUTH",
-  },
-}));
-
-// Mock auth functions
-vi.mock("./auth/workos.js", () => ({
-  isAuthenticated: vi.fn(),
-  isAuthenticatedConfig: vi.fn(),
-  loadAuthConfig: vi.fn(),
-}));
-
-// Mock telemetry
-vi.mock("./telemetry/posthogService.js", () => ({
-  posthogService: {
-    capture: vi.fn(),
   },
 }));
 
@@ -59,7 +46,6 @@ vi.mock("./util/logger.js", () => ({
 vi.mock("./env.js", () => ({
   env: {
     continueHome: "/home/test/.continue",
-    appUrl: "https://hub.continue.dev",
   },
 }));
 
@@ -74,8 +60,21 @@ vi.mock("os", () => ({
 vi.mock("path", () => ({
   default: {
     join: vi.fn((...parts) => parts.join("/")),
+    isAbsolute: vi.fn((p: string) => p.startsWith("/")),
+    resolve: vi.fn((...parts) => parts.join("/")),
   },
   join: vi.fn((...parts) => parts.join("/")),
+  isAbsolute: vi.fn((p: string) => p.startsWith("/")),
+  resolve: vi.fn((...parts) => parts.join("/")),
+}));
+
+// Mock history manager to avoid file system operations
+vi.mock("core/util/history.js", () => ({
+  default: {
+    list: vi.fn(() => []),
+    load: vi.fn(() => ({ history: [] })),
+    save: vi.fn(),
+  },
 }));
 
 // Mock session functions
@@ -107,7 +106,7 @@ describe("slashCommands", () => {
       expect(result).toBeDefined();
       expect(result?.output).toContain("Keyboard Shortcuts:");
       expect(result?.output).toContain("Navigation:");
-      expect(result?.output).toContain("↑/↓");
+      expect(result?.output).toContain("\u2191/\u2193");
       expect(result?.output).toContain("Tab");
       expect(result?.output).toContain("Enter");
       expect(result?.output).toContain("Shift+Enter");
@@ -123,13 +122,9 @@ describe("slashCommands", () => {
       expect(result?.exit).toBeUndefined();
     });
 
-    it("should handle /info command when not authenticated", async () => {
-      const { isAuthenticated } = await import("./auth/workos.js");
+    it("should handle /info command and show config info", async () => {
       const { services } = await import("./services/index.js");
 
-      (
-        isAuthenticated as MockedFunction<typeof isAuthenticated>
-      ).mockResolvedValue(false);
       (
         services.config.getState as MockedFunction<
           typeof services.config.getState
@@ -142,8 +137,6 @@ describe("slashCommands", () => {
       const result = await handleSlashCommands("/info", mockAssistant);
 
       expect(result).toBeDefined();
-      expect(result?.output).toContain("Authentication:");
-      expect(result?.output).toContain("Not logged in");
       expect(result?.output).toContain("Configuration:");
       expect(result?.output).toContain("/test/config.yaml");
       expect(result?.output).toContain("Session:");
@@ -151,18 +144,9 @@ describe("slashCommands", () => {
       expect(result?.exit).toBe(false);
     });
 
-    it("should handle /info command when authenticated via environment", async () => {
-      const { isAuthenticated, loadAuthConfig, isAuthenticatedConfig } =
-        await import("./auth/workos.js");
+    it("should handle /info command when config not found", async () => {
       const { services } = await import("./services/index.js");
 
-      (
-        isAuthenticated as MockedFunction<typeof isAuthenticated>
-      ).mockResolvedValue(true);
-      (loadAuthConfig as MockedFunction<typeof loadAuthConfig>).mockReturnValue(
-        {} as AuthConfig,
-      );
-      (isAuthenticatedConfig as any).mockReturnValue(false);
       (
         services.config.getState as MockedFunction<
           typeof services.config.getState
@@ -175,36 +159,14 @@ describe("slashCommands", () => {
       const result = await handleSlashCommands("/info", mockAssistant);
 
       expect(result).toBeDefined();
-      expect(result?.output).toContain("Authentication:");
-      expect(result?.output).toContain(
-        "Authenticated via environment variable",
-      );
       expect(result?.output).toContain("Configuration:");
       expect(result?.output).toContain("Config not found");
       expect(result?.exit).toBe(false);
     });
 
-    it("should handle /info command when authenticated with user config", async () => {
-      const { isAuthenticated, loadAuthConfig, isAuthenticatedConfig } =
-        await import("./auth/workos.js");
+    it("should handle /info command with config path", async () => {
       const { services } = await import("./services/index.js");
 
-      const mockAuthConfig: AuthenticatedConfig = {
-        userId: "test-user-id",
-        userEmail: "test@example.com",
-        accessToken: "test-token",
-        refreshToken: "test-refresh-token",
-        expiresAt: Date.now() + 3600000,
-        organizationId: "test-org-id",
-      };
-
-      (
-        isAuthenticated as MockedFunction<typeof isAuthenticated>
-      ).mockResolvedValue(true);
-      (loadAuthConfig as MockedFunction<typeof loadAuthConfig>).mockReturnValue(
-        mockAuthConfig,
-      );
-      (isAuthenticatedConfig as any).mockReturnValue(true);
       (
         services.config.getState as MockedFunction<
           typeof services.config.getState
@@ -217,21 +179,14 @@ describe("slashCommands", () => {
       const result = await handleSlashCommands("/info", mockAssistant);
 
       expect(result).toBeDefined();
-      expect(result?.output).toContain("Authentication:");
-      expect(result?.output).toContain("test@example.com");
-      expect(result?.output).toContain("test-org-id");
       expect(result?.output).toContain("Configuration:");
       expect(result?.output).toContain("/custom/config.yaml");
       expect(result?.exit).toBe(false);
     });
 
     it("should handle config service errors gracefully", async () => {
-      const { isAuthenticated } = await import("./auth/workos.js");
       const { services } = await import("./services/index.js");
 
-      (
-        isAuthenticated as MockedFunction<typeof isAuthenticated>
-      ).mockResolvedValue(false);
       (
         services.config.getState as MockedFunction<
           typeof services.config.getState
@@ -247,7 +202,6 @@ describe("slashCommands", () => {
     });
 
     it("should use test session directory when in test mode", async () => {
-      const { isAuthenticated } = await import("./auth/workos.js");
       const { services } = await import("./services/index.js");
       const { getSessionFilePath, getCurrentSession } = await import(
         "./session.js"
@@ -262,9 +216,6 @@ describe("slashCommands", () => {
         title: "Test Session",
       });
 
-      (
-        isAuthenticated as MockedFunction<typeof isAuthenticated>
-      ).mockResolvedValue(false);
       (
         services.config.getState as MockedFunction<
           typeof services.config.getState
@@ -333,6 +284,23 @@ describe("slashCommands", () => {
       expect(result).toBeDefined();
       expect(result?.output).toContain(
         "Failed to update title: Failed to save session",
+      );
+      expect(result?.exit).toBe(false);
+    });
+
+    it("should handle /rename as an alias for /title", async () => {
+      const { updateSessionTitle } = await import("./session.js");
+      (updateSessionTitle as any).mockReset();
+
+      const result = await handleSlashCommands(
+        "/rename My Renamed Session",
+        mockAssistant,
+      );
+
+      expect(updateSessionTitle).toHaveBeenCalledWith("My Renamed Session");
+      expect(result).toBeDefined();
+      expect(result?.output).toContain(
+        'Session title updated to: "My Renamed Session"',
       );
       expect(result?.exit).toBe(false);
     });

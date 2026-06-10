@@ -7,6 +7,7 @@ import {
 import { DefaultApiInterface } from "@continuedev/sdk/dist/api/dist/index.js";
 
 import { isStringRule } from "src/hubLoader.js";
+import { loadMarkdownRulesWithMetadata } from "src/systemMessage.js";
 import { getErrorString } from "src/util/error.js";
 
 import { AuthConfig, loadAuthConfig } from "../auth/workos.js";
@@ -31,7 +32,7 @@ const DEFAULT_MODEL_IDENTIFIER: PackageIdentifier = {
   uriType: "slug",
   fullSlug: {
     ownerSlug: "anthropic",
-    packageSlug: "claude-sonnet-4-5",
+    packageSlug: "claude-sonnet-4-6",
     versionSlug: "1.0.0",
   },
 };
@@ -224,8 +225,8 @@ export class ConfigService
       try {
         const modelConfig = await unrollPackageIdentifiersAsConfigYaml(
           [DEFAULT_MODEL_IDENTIFIER],
-          authConfig?.accessToken ?? null,
-          authConfig?.organizationId ?? null,
+          null,
+          null,
           apiClient,
         );
         const defaultModel = modelConfig?.models?.[0];
@@ -274,6 +275,17 @@ export class ConfigService
 
     const loadedConfig = result.config;
     const merged = mergeUnrolledAssistants(loadedConfig, additional);
+
+    const markdownRules = loadMarkdownRulesWithMetadata();
+    if (markdownRules.length > 0) {
+      const existingRuleContents = new Set(
+        (merged.rules ?? []).map((r) => (typeof r === "string" ? r : r?.rule)),
+      );
+      const newRules = markdownRules.filter(
+        (r) => !existingRuleContents.has(r.rule),
+      );
+      merged.rules = [...(merged.rules ?? []), ...newRules];
+    }
 
     const withModel = await this.addDefaultChatModelIfNone(
       merged,

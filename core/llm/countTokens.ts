@@ -18,6 +18,7 @@ import {
 import { renderChatMessage } from "../util/messageContent.js";
 import { AsyncEncoder, LlamaAsyncEncoder } from "./asyncEncoder.js";
 import { DEFAULT_PRUNING_LENGTH } from "./constants.js";
+import { getAdjustedTokenCountFromModel } from "./getAdjustedTokenCount.js";
 import llamaTokenizer from "./llamaTokenizer.js";
 interface Encoding {
   encode: Tiktoken["encode"];
@@ -114,8 +115,9 @@ function countTokens(
   modelName = "llama2",
 ): number {
   const encoding = encodingForModel(modelName);
+  let baseTokens = 0;
   if (Array.isArray(content)) {
-    return content.reduce((acc, part) => {
+    baseTokens = content.reduce((acc, part) => {
       return (
         acc +
         (part.type === "text"
@@ -124,8 +126,9 @@ function countTokens(
       );
     }, 0);
   } else {
-    return encoding.encode(content ?? "", "all", []).length;
+    baseTokens = encoding.encode(content ?? "", "all", []).length;
   }
+  return getAdjustedTokenCountFromModel(baseTokens, modelName);
 }
 
 // https://community.openai.com/t/how-to-calculate-the-tokens-when-using-function-call/266573/10
@@ -224,7 +227,7 @@ function countChatMessageTokens(
  */
 function extractToolSequence(messages: ChatMessage[]): ChatMessage[] {
   const lastMsg = messages.pop();
-  if (!lastMsg || !isUserOrToolMsg(lastMsg)) {
+  if (!lastMsg) {
     throw new Error("Error parsing chat history: no user/tool message found");
   }
 
@@ -258,6 +261,15 @@ function extractToolSequence(messages: ChatMessage[]): ChatMessage[] {
           );
         }
       }
+    }
+  } else if (lastMsg.role === "assistant" || lastMsg.role === "thinking") {
+    toolSequence.push(lastMsg);
+    while (
+      messages.length > 0 &&
+      (messages[messages.length - 1].role === "thinking" ||
+        messages[messages.length - 1].role === "assistant")
+    ) {
+      toolSequence.unshift(messages.pop()!);
     }
   } else {
     // Single user message

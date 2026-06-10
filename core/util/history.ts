@@ -38,6 +38,16 @@ export class HistoryManager {
       })
       .reverse();
 
+    // Filter by workspace directory if provided
+    if (options.workspaceDirectory) {
+      const target = options.workspaceDirectory.toLowerCase();
+      sessions = sessions.filter(
+        (session) =>
+          typeof session.workspaceDirectory === "string" &&
+          session.workspaceDirectory.toLowerCase() === target,
+      );
+    }
+
     // Apply limit and offset
     if (options.limit) {
       const offset = options.offset || 0;
@@ -114,6 +124,9 @@ export class HistoryManager {
     if (session.chatModelTitle !== undefined) {
       orderedSession.chatModelTitle = session.chatModelTitle;
     }
+    if (session.usage !== undefined) {
+      orderedSession.usage = session.usage;
+    }
 
     fs.writeFileSync(
       getSessionFilePath(session.sessionId),
@@ -138,10 +151,14 @@ export class HistoryManager {
       }
 
       let found = false;
+      const messageCount = session.history.filter(
+        (item) => item.message.role === "assistant",
+      ).length;
       for (const sessionMetadata of sessionsList) {
         if (sessionMetadata.sessionId === session.sessionId) {
           sessionMetadata.title = session.title;
           sessionMetadata.workspaceDirectory = session.workspaceDirectory;
+          sessionMetadata.messageCount = messageCount;
           found = true;
           break;
         }
@@ -153,6 +170,7 @@ export class HistoryManager {
           title: session.title,
           dateCreated: String(Date.now()),
           workspaceDirectory: session.workspaceDirectory,
+          messageCount,
         };
         sessionsList.push(sessionMetadata);
       }

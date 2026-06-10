@@ -89,7 +89,7 @@ export class CompletionProvider {
       llm.completionOptions.temperature = 0.01;
     }
 
-    if (llm instanceof OpenAI) {
+    if (llm instanceof OpenAI && llm.providerName !== "openrouter") {
       llm.useLegacyCompletionsEndpoint = true;
     }
 
@@ -282,8 +282,6 @@ export class CompletionProvider {
         gitRepo: await this.ide.getRepoName(helper.filepath),
         uniqueId: await this.ide.getUniqueId(),
         timestamp: new Date().toISOString(),
-        profileType:
-          this.configHandler.currentProfile?.profileDescription.profileType,
         ...helper.options,
       };
 

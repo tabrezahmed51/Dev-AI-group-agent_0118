@@ -8,24 +8,28 @@ Cloudflare Workers AI can be used for both chat and tab autocompletion in Contin
 <Tabs>
   <Tab title="YAML">
   ```yaml title="config.yaml"
+  name: My Config
+  version: 0.0.1
+  schema: v1
+
   models:
     - name: Llama 3 8B
       provider: cloudflare
       apiKey: <YOUR_CLOUDFARE_API_KEY>
       model: "@cf/meta/llama-3-8b-instruct"
-      contextLength: 2400
       defaultCompletionOptions:
+        contextLength: 2400
         maxTokens: 500
       roles:
         - chat
       env:
-        accountId: YOUR CLOUDFLARE ACCOUNT ID 
+        accountId: YOUR CLOUDFLARE ACCOUNT ID
     - name: DeepSeek Coder 6.7b Instruct
       provider: cloudflare
       apiKey: <YOUR_CLOUDFARE_API_KEY>
       model: "@hf/thebloke/deepseek-coder-6.7b-instruct-awq"
-      contextLength: 2400
       defaultCompletionOptions:
+        contextLength: 2400
         maxTokens: 500
       roles:
         - chat

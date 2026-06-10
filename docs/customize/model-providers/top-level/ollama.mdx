@@ -5,7 +5,7 @@ sidebarTitle: "Ollama"
 ---
 
 <Tip>
-  **Discover Ollama models [here](https://hub.continue.dev/lmstudio)**
+  **Discover Ollama models [here](https://continue.dev/lmstudio)**
 </Tip>
 
 <Info>
@@ -17,6 +17,10 @@ sidebarTitle: "Ollama"
 <Tabs>
     <Tab title="YAML">
     ```yaml title="config.yaml"
+    name: My Config
+    version: 0.0.1
+    schema: v1
+
     models:
       - name: <MODEL_NAME>
         provider: ollama
@@ -41,7 +45,7 @@ sidebarTitle: "Ollama"
 </Tabs>
 
 <Info>
-  **Check out a more advanced configuration [here](https://hub.continue.dev/ollama/qwen3-coder-30b?view=config)**
+  **Check out a more advanced configuration [here](https://continue.dev/ollama/qwen3-coder-30b?view=config)**
 </Info>
 
 ## How to Configure Model Capabilities in Ollama
@@ -51,6 +55,10 @@ Ollama models usually have their capabilities auto-detected correctly. However, 
 <Tabs>
     <Tab title="YAML">
     ```yaml title="config.yaml"
+    name: My Config
+    version: 0.0.1
+    schema: v1
+
     models:
       - name: <CUSTOM_MODEL_NAME>
         provider: ollama
@@ -82,3 +90,20 @@ Ollama models usually have their capabilities auto-detected correctly. However, 
 <Note>
   Many Ollama models support tool use by default. Vision models often also support image input
 </Note>
+
+## Troubleshooting
+
+### "Model requires more system memory"
+
+Continue may set a higher default context length than other Ollama tools, causing this error even when the model works elsewhere. Fix by reducing `contextLength`:
+
+```yaml title="config.yaml"
+models:
+  - name: Deepseek R1
+    provider: ollama
+    model: deepseek-r1:latest
+    defaultCompletionOptions:
+      contextLength: 2048
+```
+
+You can also try a smaller model variant.

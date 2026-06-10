@@ -26,10 +26,7 @@ import {
 } from "../schemas/index.js";
 import { ConfigResult, ConfigValidationError } from "../validation.js";
 import { BlockDuplicationDetector } from "./blockDuplicationDetector.js";
-import {
-  packageIdentifierToShorthandSlug,
-  useProxyForUnrenderedSecrets,
-} from "./clientRender.js";
+import { packageIdentifierToShorthandSlug } from "./clientRender.js";
 import { BlockType, getBlockType } from "./getBlockType.js";
 
 export function parseConfigYaml(configYaml: string): ConfigYaml {
@@ -86,6 +83,11 @@ export function parseBlock(configYaml: string): Block {
 export const TEMPLATE_VAR_REGEX = /\${{[\s]*([^}\s]+)[\s]*}}/g;
 
 export function getTemplateVariables(templatedYaml: string): string[] {
+  // Defensive guard against undefined/null/non-string values
+  if (!templatedYaml || typeof templatedYaml !== "string") {
+    return [];
+  }
+
   const variables = new Set<string>();
   const matches = templatedYaml.matchAll(TEMPLATE_VAR_REGEX);
   for (const match of matches) {
@@ -98,6 +100,11 @@ export function fillTemplateVariables(
   templatedYaml: string,
   data: { [key: string]: string },
 ): string {
+  // Defensive guard against undefined/null/non-string values
+  if (!templatedYaml || typeof templatedYaml !== "string") {
+    return "";
+  }
+
   return templatedYaml.replace(TEMPLATE_VAR_REGEX, (match, variableName) => {
     // Inject data
     if (variableName in data) {
@@ -214,10 +221,8 @@ export interface DoNotRenderSecretsUnrollAssistantOptions
 export interface RenderSecretsUnrollAssistantOptions
   extends BaseUnrollAssistantOptions {
   renderSecrets: true;
-  orgScopeId: string | null;
   currentUserSlug: string;
   platformClient: PlatformClient;
-  onPremProxyUrl: string | null;
   alwaysUseProxy?: boolean;
 }
 
@@ -300,10 +305,12 @@ export async function unrollAssistantFromContent(
   });
 
   if (!options.renderSecrets) {
+    const parsed = parseAssistantUnrolled(templatedYaml);
     return {
-      config: parseAssistantUnrolled(templatedYaml),
+      config: parsed,
       errors: [],
       configLoadInterrupted: false,
+      configName: parsed?.name || undefined,
     };
   }
 
@@ -315,15 +322,14 @@ export async function unrollAssistantFromContent(
   );
   const renderedYaml = renderTemplateData(templatedYaml, { secrets });
 
-  // Parse again and replace models with proxy versions where secrets weren't rendered
-  const renderedConfig = useProxyForUnrenderedSecrets(
-    parseAssistantUnrolled(renderedYaml),
-    id,
-    options.orgScopeId,
-    options.onPremProxyUrl,
-  );
+  const renderedConfig = parseAssistantUnrolled(renderedYaml);
 
-  return { config: renderedConfig, errors, configLoadInterrupted };
+  return {
+    config: renderedConfig,
+    errors,
+    configLoadInterrupted,
+    configName: renderedConfig?.name || undefined,
+  };
 }
 
 function isPackageAllowed(
@@ -540,10 +546,20 @@ export async function unrollBlocks(
         const injectedBlockPromises = injectBlocks.map(async (injectBlock) => {
           try {
             const blockConfigYaml = await registry.getContent(injectBlock);
+            // Convert inputs to secrets, then convert secrets to FQSNs using the injected block's identifier
+            // This ensures secrets are properly namespaced for proxy resolution (e.g., models add-on)
             const blockConfigYamlWithSecrets =
               replaceInputsWithSecrets(blockConfigYaml);
-            const resolvedBlock = parseMarkdownRuleOrConfigYaml(
+            const blockConfigYamlWithFQSNs = renderTemplateData(
               blockConfigYamlWithSecrets,
+              {
+                secrets: extractFQSNMap(blockConfigYamlWithSecrets, [
+                  injectBlock,
+                ]),
+              },
+            );
+            const resolvedBlock = parseMarkdownRuleOrConfigYaml(
+              blockConfigYamlWithFQSNs,
               injectBlock,
             );
             const blockType = getBlockType(resolvedBlock);
@@ -658,6 +674,7 @@ export async function unrollBlocks(
     config: undefined,
     errors: undefined,
     configLoadInterrupted: false,
+    configName: unrolledAssistant.name || undefined,
   };
   configResult.config = unrolledAssistant;
   if (errors.length > 0) {
@@ -701,7 +718,7 @@ function injectLocalSourceFile(
 
 export async function resolveBlock(
   id: PackageIdentifier,
-  inputs: Record<string, string> | undefined,
+  inputs: Record<string, string | undefined> | undefined,
   registry: Registry,
 ): Promise<AssistantUnrolled> {
   // Retrieve block raw yaml
@@ -719,6 +736,21 @@ export async function resolveBlock(
     inputs: renderedInputs,
     secrets: extractFQSNMap(rawYaml, [id]),
   });
+
+  // Check for unresolved input template variables (missing required inputs)
+  const unresolvedInputs = getTemplateVariables(templatedYaml).filter((v) =>
+    v.startsWith("inputs."),
+  );
+  if (unresolvedInputs.length > 0) {
+    const missingInputNames = unresolvedInputs.map((v) =>
+      v.replace("inputs.", ""),
+    );
+    const blockName = packageIdentifierToShorthandSlug(id);
+    throw new Error(
+      `Missing required input(s) for block "${blockName}": ${missingInputNames.join(", ")}. ` +
+        `Please provide these values in the "with" block.`,
+    );
+  }
 
   // Add source slug for mcp servers
   const parsed = parseMarkdownRuleOrAssistantUnrolled(templatedYaml, id);
@@ -777,11 +809,19 @@ function parseYamlOrMarkdownRule<T>(
 }
 
 function inputsToFQSNs(
-  inputs: Record<string, string>,
+  inputs: Record<string, string | undefined>,
   blockIdentifier: PackageIdentifier,
 ): Record<string, string> {
   const renderedInputs: Record<string, string> = {};
   for (const [key, value] of Object.entries(inputs)) {
+    // Skip undefined, null, or non-string values
+    if (value === undefined || value === null || typeof value !== "string") {
+      console.warn(
+        `Skipping input "${key}" with invalid value type: ${typeof value}. Expected string.`,
+      );
+      continue;
+    }
+
     renderedInputs[key] = renderTemplateData(value, {
       secrets: extractFQSNMap(value, [blockIdentifier]),
     });

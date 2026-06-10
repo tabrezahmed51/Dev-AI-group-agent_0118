@@ -1,11 +1,11 @@
 import { ContinueError, ContinueErrorReason } from "core/util/errors.js";
 
-import { sentryService } from "../sentry.js";
 import {
   ApiRequestError,
   AuthenticationRequiredError,
   post,
 } from "../util/apiClient.js";
+import { updateAgentMetadata } from "../util/exit.js";
 import { logger } from "../util/logger.js";
 
 import { Tool } from "./types.js";
@@ -57,22 +57,22 @@ export const reportFailureTool: Tool = {
         throw new ContinueError(ContinueErrorReason.Unspecified, errorMessage);
       }
 
-      // Capture failure in Sentry with context
-      sentryService.captureException(
-        new Error(trimmedMessage),
-        {
-          agent_failure: {
-            agentId,
-            errorMessage: trimmedMessage,
-          },
-        },
-        "fatal",
-      );
-
       await post(`agents/${agentId}/status`, {
         status: "FAILED",
         errorMessage: trimmedMessage,
       });
+
+      // Mark agent as complete since it failed
+      try {
+        await updateAgentMetadata({ isComplete: true });
+        logger.debug("Marked agent as complete due to failure");
+      } catch (metadataErr) {
+        // Non-critical: log but don't fail the failure report
+        logger.debug(
+          "Failed to update completion metadata (non-critical)",
+          metadataErr as any,
+        );
+      }
 
       logger.info(`Failure reported: ${trimmedMessage}`);
       return "Failure reported to user.";

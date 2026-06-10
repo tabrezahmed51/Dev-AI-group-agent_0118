@@ -4,6 +4,7 @@ import {
   BookmarkIcon as BookmarkOutline,
   EyeIcon,
   PencilIcon,
+  TrashIcon,
 } from "@heroicons/react/24/outline";
 import { BookmarkIcon as BookmarkSolid } from "@heroicons/react/24/solid";
 import {
@@ -20,6 +21,8 @@ import {
 import { getRuleDisplayName } from "core/llm/rules/rules-utils";
 import { useContext, useMemo, useState } from "react";
 import { DropdownButton } from "../../../components/DropdownButton";
+import AddRuleDialog from "../../../components/dialogs/AddRuleDialog";
+import ConfirmationDialog from "../../../components/dialogs/ConfirmationDialog";
 import HeaderButtonWithToolTip from "../../../components/gui/HeaderButtonWithToolTip";
 import Switch from "../../../components/gui/Switch";
 import {
@@ -132,7 +135,6 @@ interface RuleCardProps {
 const RuleCard: React.FC<RuleCardProps> = ({ rule }) => {
   const dispatch = useAppDispatch();
   const ideMessenger = useContext(IdeMessengerContext);
-  const mode = useAppSelector((store) => store.session.mode);
   const policy = useAppSelector((state) =>
     rule.name
       ? state.ui.ruleSettings[rule.name] || DEFAULT_RULE_SETTING
@@ -162,6 +164,36 @@ const RuleCard: React.FC<RuleCardProps> = ({ rule }) => {
       ),
     );
   }
+
+  const handleDelete = () => {
+    if (!rule.sourceFile) {
+      return;
+    }
+
+    dispatch(
+      setDialogMessage(
+        <ConfirmationDialog
+          title="Delete Rule"
+          text="Are you sure you want to delete this rule file?"
+          confirmText="Delete"
+          onConfirm={async () => {
+            try {
+              await ideMessenger.request("config/deleteRule", {
+                filepath: rule.sourceFile!,
+              });
+            } catch (error) {
+              console.error("Failed to delete rule file:", error);
+            }
+          }}
+        />,
+      ),
+    );
+    dispatch(setShowDialog(true));
+  };
+
+  const canDeleteRule =
+    rule.sourceFile &&
+    !["default-chat", "default-agent", "default-plan"].includes(rule.source);
 
   const smallFont = fontSize(-2);
   const tinyFont = fontSize(-3);
@@ -210,6 +242,11 @@ const RuleCard: React.FC<RuleCardProps> = ({ rule }) => {
                   <PencilIcon className="h-3 w-3 text-gray-400" />
                 </HeaderButtonWithToolTip>
               )}
+              {canDeleteRule && (
+                <HeaderButtonWithToolTip onClick={handleDelete} text="Delete">
+                  <TrashIcon className="h-3 w-3 text-gray-400" />
+                </HeaderButtonWithToolTip>
+              )}
             </div>
           </div>
         </div>
@@ -249,7 +286,6 @@ function PromptsSubSection() {
   const { selectedProfile } = useAuth();
   const { isCommandBookmarked, toggleBookmark } = useBookmarkedSlashCommands();
   const ideMessenger = useContext(IdeMessengerContext);
-  const isLocal = selectedProfile?.profileType === "local";
 
   const slashCommands = useAppSelector(
     (state) => state.config.config.slashCommands ?? [],
@@ -262,16 +298,9 @@ function PromptsSubSection() {
   };
 
   const handleAddPrompt = () => {
-    if (isLocal) {
-      void ideMessenger.request("config/addLocalWorkspaceBlock", {
-        blockType: "prompts",
-      });
-    } else {
-      void ideMessenger.request("controlPlane/openUrl", {
-        path: "?type=prompts",
-        orgSlug: undefined,
-      });
-    }
+    void ideMessenger.request("config/addLocalWorkspaceBlock", {
+      blockType: "prompts",
+    });
   };
 
   const sortedCommands = useMemo(() => {
@@ -393,25 +422,20 @@ function RulesSubSection() {
   const config = useAppSelector((store) => store.config.config);
   const mode = useAppSelector((store) => store.session.mode);
   const ideMessenger = useContext(IdeMessengerContext);
-  const isLocal = selectedProfile?.profileType === "local";
+  const dispatch = useAppDispatch();
   const [globalRulesMode, setGlobalRulesMode] = useState<string>("workspace");
+  const configLoading = useAppSelector((store) => store.config.loading);
 
   const handleAddRule = (mode?: string) => {
     const currentMode = mode || globalRulesMode;
-    if (isLocal) {
-      if (currentMode === "global") {
-        void ideMessenger.request("config/addGlobalRule", undefined);
-      } else {
-        void ideMessenger.request("config/addLocalWorkspaceBlock", {
-          blockType: "rules",
-        });
-      }
-    } else {
-      void ideMessenger.request("controlPlane/openUrl", {
-        path: "?type=rules",
-        orgSlug: undefined,
-      });
-    }
+    dispatch(setShowDialog(true));
+    dispatch(
+      setDialogMessage(
+        <AddRuleDialog
+          mode={currentMode === "global" ? "global" : "workspace"}
+        />,
+      ),
+    );
   };
 
   const handleOptionClick = (value: string) => {
@@ -461,22 +485,13 @@ function RulesSubSection() {
 
   return (
     <div>
-      {isLocal ? (
-        <DropdownButton
-          title="Rules"
-          variant="sm"
-          options={globalRulesOptions}
-          onOptionClick={handleOptionClick}
-          addButtonTooltip="Add rules"
-        />
-      ) : (
-        <ConfigHeader
-          title="Rules"
-          variant="sm"
-          onAddClick={() => handleAddRule()}
-          addButtonTooltip="Add rules"
-        />
-      )}
+      <DropdownButton
+        title="Rules"
+        variant="sm"
+        options={globalRulesOptions}
+        onOptionClick={handleOptionClick}
+        addButtonTooltip="Add rules"
+      />
 
       <Card>
         {sortedRules.length > 0 ? (
@@ -484,6 +499,11 @@ function RulesSubSection() {
             {sortedRules.map((rule, index) => (
               <RuleCard key={index} rule={rule} />
             ))}
+            {configLoading && (
+              <div className="px-2 py-1.5 text-xs opacity-65">
+                Reloading rules from your config...
+              </div>
+            )}
           </div>
         ) : (
           <EmptyState message="No rules configured. Click the + button to add your first rule." />

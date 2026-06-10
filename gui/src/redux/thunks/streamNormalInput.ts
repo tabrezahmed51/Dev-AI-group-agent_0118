@@ -2,6 +2,7 @@ import { createAsyncThunk, unwrapResult } from "@reduxjs/toolkit";
 import { LLMFullCompletionOptions, ModelDescription } from "core";
 import { getRuleId } from "core/llm/rules/getSystemMessageWithRules";
 import { ToCoreProtocol } from "core/protocol";
+import { BUILT_IN_GROUP_NAME } from "core/tools/builtIn";
 import { selectActiveTools } from "../selectors/selectActiveTools";
 import { selectSelectedChatModel } from "../slices/configSlice";
 import {
@@ -21,10 +22,11 @@ import { ThunkApiType } from "../store";
 import { constructMessages } from "../util/constructMessages";
 
 import { modelSupportsNativeTools } from "core/llm/toolSupport";
+import { applyToolOverrides } from "core/tools/applyToolOverrides";
 import { addSystemMessageToolsToSystemMessage } from "core/tools/systemMessageTools/buildToolsSystemMessage";
 import { interceptSystemToolCalls } from "core/tools/systemMessageTools/interceptSystemToolCalls";
 import { SystemMessageToolCodeblocksFramework } from "core/tools/systemMessageTools/toolCodeblocks";
-import posthog from "posthog-js";
+
 import {
   selectCurrentToolCalls,
   selectPendingToolCalls,
@@ -92,8 +94,20 @@ export const streamNormalInput = createAsyncThunk<
       throw new Error("No chat model selected");
     }
 
-    // Get tools and filter them based on the selected model
-    const activeTools = selectActiveTools(state);
+    // Get tools and apply model-level overrides (disabled, description, etc.)
+    let activeTools = selectActiveTools(state);
+    if (selectedChatModel.toolOverrides?.length) {
+      const { tools: overriddenTools, errors } = applyToolOverrides(
+        activeTools,
+        selectedChatModel.toolOverrides,
+      );
+      activeTools = overriddenTools;
+      for (const error of errors) {
+        if (!error.fatal) {
+          console.warn(`Tool override warning: ${error.message}`);
+        }
+      }
+    }
 
     // Use the centralized selector to determine if system message tools should be used
     const useNativeTools = state.config.config.experimental
@@ -242,15 +256,6 @@ export const streamNormalInput = createAsyncThunk<
       }
     } catch (e) {
       const toolCallsToCancel = selectCurrentToolCalls(getState());
-      posthog.capture("stream_premature_close_error", {
-        duration: (Date.now() - start) / 1000,
-        model: selectedChatModel.model,
-        provider: selectedChatModel.underlyingProviderName,
-        context: legacySlashCommandData ? "slash_command" : "regular_chat",
-        ...(legacySlashCommandData && {
-          command: legacySlashCommandData.command.name,
-        }),
-      });
       if (
         toolCallsToCancel.length > 0 &&
         e instanceof Error &&
@@ -317,14 +322,43 @@ export const streamNormalInput = createAsyncThunk<
       generatedCalls3,
       toolPolicies,
     );
-    const anyRequireApproval = policies.find(
+    const autoApprovedPolicies = policies.filter(
+      ({ policy }) => policy === "allowedWithoutPermission",
+    );
+    const needsApprovalPolicies = policies.filter(
       ({ policy }) => policy === "allowedWithPermission",
     );
 
     // 4. Execute remaining tool calls
-    // Only set inactive if not all tools were auto-approved
-    // This prevents UI flashing for auto-approved tools
-    if (originalToolCalls.length === 0 || anyRequireApproval) {
+    if (originalToolCalls.length === 0) {
+      dispatch(setInactive());
+    } else if (needsApprovalPolicies.length > 0) {
+      const builtInReadonlyAutoApproved = autoApprovedPolicies.filter(
+        ({ toolCallState }) =>
+          toolCallState.tool?.group === BUILT_IN_GROUP_NAME &&
+          toolCallState.tool?.readonly,
+      );
+
+      if (builtInReadonlyAutoApproved.length > 0) {
+        const state4 = getState();
+        if (streamAborter.signal.aborted || !state4.session.isStreaming) {
+          return;
+        }
+        await Promise.all(
+          builtInReadonlyAutoApproved.map(async ({ toolCallState }) => {
+            unwrapResult(
+              await dispatch(
+                callToolById({
+                  toolCallId: toolCallState.toolCallId,
+                  isAutoApproved: true,
+                  depth: depth + 1,
+                }),
+              ),
+            );
+          }),
+        );
+      }
+
       dispatch(setInactive());
     } else {
       // auto stream cases increase thunk depth by 1 for debugging
@@ -334,7 +368,6 @@ export const streamNormalInput = createAsyncThunk<
         return;
       }
       if (generatedCalls4.length > 0) {
-        // All that didn't fail are auto approved - call them
         await Promise.all(
           generatedCalls4.map(async ({ toolCallId }) => {
             unwrapResult(
@@ -349,7 +382,6 @@ export const streamNormalInput = createAsyncThunk<
           }),
         );
       } else {
-        // All failed - stream on
         for (const { toolCallId } of originalToolCalls) {
           unwrapResult(
             await dispatch(

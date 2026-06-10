@@ -34,8 +34,6 @@ class MessageTypes {
             "getFileStats",
             "insertAtCursor",
             "applyToFile",
-            "getControlPlaneSessionInfo",
-            "logoutOfControlPlane",
             "showToast",
             "openUrl",
             "isWorkspaceRemote",
@@ -77,6 +75,7 @@ class MessageTypes {
             "history/delete",
             "history/load",
             "history/save",
+            "history/loadRemote",
             "history/clear",
             "devdata/log",
             "config/addModel",
@@ -84,6 +83,8 @@ class MessageTypes {
             "config/newAssistantFile",
             "config/ideSettingsUpdate",
             "config/addLocalWorkspaceBlock",
+            "config/addGlobalRule",
+            "config/deleteRule",
             "config/getSerializedProfileInfo",
             "config/deleteModel",
             "config/refreshProfiles",
@@ -146,11 +147,14 @@ class MessageTypes {
             "tools/call",
             "tools/evaluatePolicy",
             "tools/preprocessArgs",
+            "controlPlane/getEnvironment",
+            "controlPlane/getCreditStatus",
             "controlPlane/openUrl",
             "isItemTooBig",
             "process/markAsBackgrounded",
             "process/isBackgrounded",
-            "process/killTerminalProcess"
+            "process/killTerminalProcess",
+            "models/fetch"
         )
     }
 }

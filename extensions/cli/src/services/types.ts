@@ -10,7 +10,7 @@ import { AssistantConfig } from "@continuedev/sdk";
 import { DefaultApiInterface } from "@continuedev/sdk/dist/api/dist/index.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
-import { AuthConfig } from "../auth/workos.js";
+import type { AuthConfig } from "../auth/workos.js";
 import { BaseCommandOptions } from "../commands/BaseCommandOptions.js";
 import { PermissionMode } from "../permissions/types.js";
 
@@ -125,8 +125,18 @@ export interface AgentFileServiceState {
   parsedRules: ReturnType<typeof parseAgentFileRules> | null;
 }
 
+export interface ArtifactUploadServiceState {
+  uploadsInProgress: number;
+  lastError: string | null;
+}
+
+export type {
+  BackgroundJob,
+  BackgroundJobStatus,
+} from "./BackgroundJobService.js";
 export type { ChatHistoryState } from "./ChatHistoryService.js";
 export type { FileIndexServiceState } from "./FileIndexService.js";
+export type { GitAiIntegrationServiceState } from "./GitAiIntegrationService.js";
 
 /**
  * Service names as constants to prevent typos
@@ -145,6 +155,11 @@ export const SERVICE_NAMES = {
   UPDATE: "update",
   STORAGE_SYNC: "storageSync",
   AGENT_FILE: "agentFile",
+  ARTIFACT_UPLOAD: "artifactUpload",
+  GIT_AI_INTEGRATION: "gitAiIntegration",
+  BACKGROUND_JOBS: "backgroundJobs",
+  QUIZ: "quiz",
+  HOOKS: "hooks",
 } as const;
 
 /**

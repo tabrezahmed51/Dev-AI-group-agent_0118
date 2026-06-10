@@ -15,6 +15,7 @@ import {
   ContextItem,
   ContextItemWithId,
   FileSymbolMap,
+  McpUiState,
   MessageModes,
   PromptLog,
   RuleMetadata,
@@ -24,7 +25,6 @@ import {
   ToolCallDelta,
   ToolCallState,
 } from "core";
-import type { RemoteSessionMetadata } from "core/control-plane/client";
 import { mergeReasoningDetails } from "core/llm/openaiTypeConverters";
 import { NEW_SESSION_TITLE } from "core/util/constants";
 import {
@@ -203,7 +203,7 @@ export type ChatHistoryItemWithMessageId = ChatHistoryItem & {
 type SessionState = {
   lastSessionId?: string;
   isSessionMetadataLoading: boolean;
-  allSessionMetadata: (BaseSessionMetadata | RemoteSessionMetadata)[];
+  allSessionMetadata: BaseSessionMetadata[];
   history: ChatHistoryItemWithMessageId[];
   isStreaming: boolean;
   title: string;
@@ -598,7 +598,6 @@ export const sessionSlice = createSlice({
               },
               contextItems: [],
             };
-            handleToolCallsInMessage(message, historyItem);
             state.history.push(historyItem);
             lastItem = state.history[state.history.length - 1];
             lastMessage = lastItem.message;
@@ -659,6 +658,14 @@ export const sessionSlice = createSlice({
             message.metadata?.responsesOutputItemId
           ) {
             lastMessage.metadata = lastMessage.metadata || {};
+            // Accumulate fc_ IDs for parallel tool calls (OpenAI Responses API)
+            if (!lastMessage.metadata.responsesOutputItemIds) {
+              lastMessage.metadata.responsesOutputItemIds = [];
+            }
+            (lastMessage.metadata.responsesOutputItemIds as string[]).push(
+              message.metadata.responsesOutputItemId as string,
+            );
+            // Also keep singular for backwards compatibility
             lastMessage.metadata.responsesOutputItemId = message.metadata
               .responsesOutputItemId as string;
           }
@@ -713,9 +720,7 @@ export const sessionSlice = createSlice({
     },
     setAllSessionMetadata: (
       state,
-      {
-        payload,
-      }: PayloadAction<(BaseSessionMetadata | RemoteSessionMetadata)[]>,
+      { payload }: PayloadAction<BaseSessionMetadata[]>,
     ) => {
       state.allSessionMetadata = payload;
     },
@@ -852,6 +857,7 @@ export const sessionSlice = createSlice({
       action: PayloadAction<{
         toolCallId: string;
         contextItems: ContextItem[];
+        mcpUiState?: McpUiState;
       }>,
     ) => {
       // Update tool call state and corresponding tool output message
@@ -861,6 +867,7 @@ export const sessionSlice = createSlice({
       );
       if (toolCallState) {
         toolCallState.output = action.payload.contextItems;
+        toolCallState.mcpUiState = action.payload.mcpUiState;
       }
       const toolItem = findChatHistoryItemByToolCallId(
         state.history,

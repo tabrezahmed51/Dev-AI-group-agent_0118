@@ -56,19 +56,24 @@ const PROVIDER_HANDLES_TEMPLATING: string[] = [
   "bedrock",
   "cohere",
   "sagemaker",
-  "continue-proxy",
   "mistral",
+  "mimo",
   "sambanova",
   "vertexai",
   "watsonx",
   "nebius",
   "relace",
   "openrouter",
+  "clawrouter",
   "deepseek",
   "xAI",
+  "minimax",
   "groq",
   "gemini",
   "docker",
+  "nous",
+  "zAI",
+  "tensorix",
   // TODO add these, change to inverted logic so only the ones that need templating are hardcoded
   // Asksage.ts
   // Azure.ts
@@ -116,8 +121,8 @@ const PROVIDER_SUPPORTS_IMAGES: string[] = [
   "anthropic",
   "bedrock",
   "sagemaker",
-  "continue-proxy",
   "openrouter",
+  "clawrouter",
   "venice",
   "sambanova",
   "vertexai",
@@ -126,6 +131,8 @@ const PROVIDER_SUPPORTS_IMAGES: string[] = [
   "nebius",
   "ovhcloud",
   "watsonx",
+  "zAI",
+  "tensorix",
 ];
 
 const MODEL_SUPPORTS_IMAGES: RegExp[] = [
@@ -143,7 +150,7 @@ const MODEL_SUPPORTS_IMAGES: RegExp[] = [
   /pixtral/,
   /llama-?3\.2/,
   /llama-?4/, // might use something like /llama-?(?:[4-9](?:\.\d+)?|\d{2,}(?:\.\d+)?)/ for forward compat, if needed
-  /\bgemma-?3(?!n)/, // gemma3 supports vision, but gemma3n doesn't!
+  /\bgemma-?[34](?!n)/, // gemma3/gemma4 support vision, but gemma3n doesn't!
   /\b(pali|med)gemma/,
   /qwen(.*)vl/,
   /mistral-small/,
@@ -207,6 +214,19 @@ function modelSupportsReasoning(
   if (model.model.includes("deepseek-r")) {
     return true;
   }
+  // o-series reasoning models
+  if (/^o[134]/.test(model.model)) {
+    return true;
+  }
+  if (model.model.includes("codex")) {
+    return true;
+  }
+  if (model.model.includes("magistral")) {
+    return true;
+  }
+  if (model.model.includes("grok-4")) {
+    return true;
+  }
 
   return false;
 }
@@ -231,6 +251,8 @@ const PARALLEL_PROVIDERS: string[] = [
   "vertexai",
   "function-network",
   "scaleway",
+  "minimax",
+  "tensorix",
 ];
 
 function llmCanGenerateInParallel(provider: string, model: string): boolean {
@@ -255,6 +277,7 @@ function isProviderHandlesTemplatingOrNoTemplateTypeRequired(
     modelName.includes("moonshot") ||
     modelName.includes("kimi") ||
     modelName.includes("mercury") ||
+    modelName.includes("glm") ||
     /^o\d/.test(modelName)
   );
 }
@@ -362,6 +385,10 @@ function autodetectTemplateType(model: string): TemplateType | undefined {
 
   if (lower.includes("deepseek")) {
     return "deepseek";
+  }
+
+  if (lower.includes("hermes")) {
+    return "chatml";
   }
 
   if (lower.includes("ninja") || lower.includes("openchat")) {

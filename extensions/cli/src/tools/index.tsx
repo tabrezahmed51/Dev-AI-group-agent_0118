@@ -2,7 +2,6 @@
 import { ContinueError, ContinueErrorReason } from "core/util/errors.js";
 import { ChatCompletionTool } from "openai/resources.mjs";
 
-import { posthogService } from "src/telemetry/posthogService.js";
 import { isModelCapable } from "src/utils/modelCapability.js";
 
 import {
@@ -19,6 +18,8 @@ import { telemetryService } from "../telemetry/telemetryService.js";
 import { logger } from "../util/logger.js";
 
 import { ALL_BUILT_IN_TOOLS } from "./allBuiltIns.js";
+import { askQuestionTool } from "./askQuestion.js";
+import { checkBackgroundJobTool } from "./checkBackgroundJob.js";
 import { editTool } from "./edit.js";
 import { exitTool } from "./exit.js";
 import { fetchTool } from "./fetch.js";
@@ -28,13 +29,21 @@ import { readFileTool } from "./readFile.js";
 import { reportFailureTool } from "./reportFailure.js";
 import { runTerminalCommandTool } from "./runTerminalCommand.js";
 import { checkIfRipgrepIsInstalled, searchCodeTool } from "./searchCode.js";
+import { skillsTool } from "./skills.js";
+import { subagentTool } from "./subagent.js";
+import {
+  isBetaSubagentToolEnabled,
+  isBetaUploadArtifactToolEnabled,
+} from "./toolsConfig.js";
 import {
   type Tool,
   type ToolCall,
   type ToolParametersSchema,
+  type ToolRunContext,
   ParameterSchema,
   PreprocessedToolCall,
 } from "./types.js";
+import { uploadArtifactTool } from "./uploadArtifact.js";
 import { writeChecklistTool } from "./writeChecklist.js";
 import { writeFileTool } from "./writeFile.js";
 
@@ -60,6 +69,8 @@ const BASE_BUILTIN_TOOLS: Tool[] = [
   runTerminalCommandTool,
   fetchTool,
   writeChecklistTool,
+  checkBackgroundJobTool,
+  askQuestionTool,
 ];
 
 const BUILTIN_SEARCH_TOOLS: Tool[] = [searchCodeTool];
@@ -75,11 +86,16 @@ export async function getAllAvailableTools(
     tools.push(...BUILTIN_SEARCH_TOOLS);
   }
 
-  // Add ReportFailure tool if no agent ID is present
-  // (it requires --id to function and will confuse the agent if unavailable)
+  // Add agent-specific tools if agent ID is present
+  // (these require --id to function and will confuse the agent if unavailable)
   const agentId = getAgentIdFromArgs();
   if (agentId) {
     tools.push(reportFailureTool);
+
+    // UploadArtifact tool is gated behind beta flag
+    if (isBetaUploadArtifactToolEnabled()) {
+      tools.push(uploadArtifactTool);
+    }
   }
 
   // If model is capable, exclude editTool in favor of multiEditTool
@@ -111,6 +127,12 @@ export async function getAllAvailableTools(
   if (isHeadless) {
     tools.push(exitTool);
   }
+
+  if (isBetaSubagentToolEnabled()) {
+    tools.push(await subagentTool());
+  }
+
+  tools.push(await skillsTool());
 
   const mcpState = await serviceContainer.get<MCPServiceState>(
     SERVICE_NAMES.MCP,
@@ -170,7 +192,7 @@ export function convertToolToChatCompletionTool(
 export function convertMcpToolToContinueTool(mcpTool: MCPTool): Tool {
   return {
     name: mcpTool.name,
-    displayName: mcpTool.name.replace("mcp__", "").replace("ide__", ""),
+    displayName: mcpTool.name,
     description: mcpTool.description ?? "",
     parameters: {
       type: "object",
@@ -191,6 +213,7 @@ export function convertMcpToolToContinueTool(mcpTool: MCPTool): Tool {
 
 export async function executeToolCall(
   toolCall: PreprocessedToolCall,
+  options: { parallelToolCallCount: number } = { parallelToolCallCount: 1 },
 ): Promise<string> {
   const startTime = Date.now();
 
@@ -198,14 +221,27 @@ export async function executeToolCall(
     logger.debug("Executing tool", {
       toolName: toolCall.name,
       arguments: toolCall.arguments,
+      parallelToolCallCount: options.parallelToolCallCount,
     });
+
+    // Track edits if Git AI is enabled (no-op if not enabled)
+    await services.gitAiIntegration.trackToolUse(toolCall, "PreToolUse");
+
+    const context: ToolRunContext = {
+      toolCallId: toolCall.id,
+      parallelToolCallCount: options.parallelToolCallCount,
+    };
 
     // IMPORTANT: if preprocessed args are present, uses preprocessed args instead of original args
     // Preprocessed arg names may be different
     const result = await toolCall.tool.run(
       toolCall.preprocessResult?.args ?? toolCall.arguments,
+      context,
     );
     const duration = Date.now() - startTime;
+
+    // Track edits if Git AI is enabled (no-op if not enabled)
+    await services.gitAiIntegration.trackToolUse(toolCall, "PostToolUse");
 
     telemetryService.logToolResult({
       toolName: toolCall.name,
@@ -213,12 +249,6 @@ export async function executeToolCall(
       durationMs: duration,
       toolParameters: JSON.stringify(toolCall.arguments),
     });
-    void posthogService.capture("tool_call_outcome", {
-      succeeded: true,
-      toolName: toolCall.name,
-      duration_ms: duration,
-    });
-
     logger.debug("Tool execution completed", {
       toolName: toolCall.name,
       resultLength: result?.length || 0,
@@ -241,13 +271,6 @@ export async function executeToolCall(
       errorReason,
       toolParameters: JSON.stringify(toolCall.arguments),
     });
-    void posthogService.capture("tool_call_outcome", {
-      succeeded: false,
-      toolName: toolCall.name,
-      duration_ms: duration,
-      errorReason,
-    });
-
     throw error;
   }
 }

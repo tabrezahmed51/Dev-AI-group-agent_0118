@@ -3,7 +3,7 @@ import path from "path";
 
 import { IContextProvider } from "core";
 import { ConfigHandler } from "core/config/ConfigHandler";
-import { EXTENSION_NAME, getControlPlaneEnv } from "core/control-plane/env";
+import { EXTENSION_NAME } from "core/util/constants";
 import { Core } from "core/core";
 import { FromCoreProtocol, ToCoreProtocol } from "core/protocol";
 import { InProcessMessenger } from "core/protocol/messenger";
@@ -30,12 +30,7 @@ import { registerAllCodeLensProviders } from "../lang-server/codeLens";
 import { registerAllPromptFilesCompletionProviders } from "../lang-server/promptFileCompletions";
 import EditDecorationManager from "../quickEdit/EditDecorationManager";
 import { QuickEdit } from "../quickEdit/QuickEditQuickPick";
-import { setupRemoteConfigSync } from "../stubs/activation";
 import { UriEventHandler } from "../stubs/uriHandler";
-import {
-  getControlPlaneSessionInfo,
-  WorkOsAuthProvider,
-} from "../stubs/WorkOsAuthProvider";
 import { Battery } from "../util/battery";
 import { FileSearch } from "../util/FileSearch";
 import { VsCodeIdeUtils } from "../util/ideUtils";
@@ -58,7 +53,11 @@ import {
 } from "../activation/SelectionChangeManager";
 import { GhostTextAcceptanceTracker } from "../autocomplete/GhostTextAcceptanceTracker";
 import { getDefinitionsFromLsp } from "../autocomplete/lsp";
-import { handleTextDocumentChange } from "../util/editLoggingUtils";
+import {
+  clearDocumentContentCache,
+  handleTextDocumentChange,
+  initDocumentContentCache,
+} from "../util/editLoggingUtils";
 import type { VsCodeWebviewProtocol } from "../webviewProtocol";
 
 export class VsCodeExtension {
@@ -76,7 +75,6 @@ export class VsCodeExtension {
   webviewProtocolPromise: Promise<VsCodeWebviewProtocol>;
   private core: Core;
   private battery: Battery;
-  private workOsAuthProvider: WorkOsAuthProvider;
   private fileSearch: FileSearch;
   private uriHandler = new UriEventHandler();
   private completionProvider: ContinueCompletionProvider;
@@ -172,12 +170,6 @@ export class VsCodeExtension {
   }
 
   constructor(context: vscode.ExtensionContext) {
-    // Register auth provider
-    this.workOsAuthProvider = new WorkOsAuthProvider(context, this.uriHandler);
-
-    void this.workOsAuthProvider.refreshSessions();
-    context.subscriptions.push(this.workOsAuthProvider);
-
     this.editDecorationManager = new EditDecorationManager(context);
 
     let resolveWebviewProtocol: any = undefined;
@@ -281,7 +273,6 @@ export class VsCodeExtension {
       this.ide,
       verticalDiffManagerPromise,
       configHandlerPromise,
-      this.workOsAuthProvider,
       this.editDecorationManager,
       context,
       this,
@@ -299,12 +290,6 @@ export class VsCodeExtension {
       this.ide,
     );
     resolveVerticalDiffManager?.(this.verticalDiffManager);
-
-    void setupRemoteConfigSync(() =>
-      this.configHandler.reloadConfig.bind(this.configHandler)(
-        "Remote config sync",
-      ),
-    );
 
     void this.configHandler.loadConfig().then(async ({ config }) => {
       const shouldUseFullFileDiff = await getUsingFullFileDiff();
@@ -369,11 +354,9 @@ export class VsCodeExtension {
     this.uriHandler.event((uri) => {
       const queryParams = new URLSearchParams(uri.query);
       let profileId = queryParams.get("profile_id");
-      let orgId = queryParams.get("org_id");
 
       this.core.invoke("config/refreshProfiles", {
         reason: "VS Code deep link",
-        selectOrgId: orgId === "null" ? undefined : (orgId ?? undefined),
         selectProfileId:
           profileId === "null" ? undefined : (profileId ?? undefined),
       });
@@ -476,6 +459,16 @@ export class VsCodeExtension {
       });
     }
 
+    // Initialize document content cache for tracking pre-edit content
+    vscode.workspace.onDidOpenTextDocument((document) => {
+      initDocumentContentCache(document);
+    });
+
+    // Initialize cache for all currently open documents
+    for (const document of vscode.workspace.textDocuments) {
+      initDocumentContentCache(document);
+    }
+
     vscode.workspace.onDidChangeTextDocument(async (event) => {
       if (event.contentChanges.length > 0) {
         selectionManager.documentChanged();
@@ -505,6 +498,7 @@ export class VsCodeExtension {
     });
 
     vscode.workspace.onDidCloseTextDocument(async (event) => {
+      clearDocumentContentCache(event.uri.toString());
       this.core.invoke("files/closed", {
         uris: [event.uri.toString()],
       });
@@ -545,28 +539,8 @@ export class VsCodeExtension {
 
     // When GitHub sign-in status changes, reload config
     vscode.authentication.onDidChangeSessions(async (e) => {
-      const env = await getControlPlaneEnv(this.ide.getIdeSettings());
-      if (e.provider.id === env.AUTH_TYPE) {
-        void vscode.commands.executeCommand(
-          "setContext",
-          "continue.isSignedInToControlPlane",
-          true,
-        );
-
-        const sessionInfo = await getControlPlaneSessionInfo(true, false);
-        void this.core.invoke("didChangeControlPlaneSessionInfo", {
-          sessionInfo,
-        });
-      } else {
-        void vscode.commands.executeCommand(
-          "setContext",
-          "continue.isSignedInToControlPlane",
-          false,
-        );
-
-        if (e.provider.id === "github") {
-          this.configHandler.reloadConfig("Github sign-in status changed");
-        }
+      if (e.provider.id === "github") {
+        this.configHandler.reloadConfig("Github sign-in status changed");
       }
     });
 

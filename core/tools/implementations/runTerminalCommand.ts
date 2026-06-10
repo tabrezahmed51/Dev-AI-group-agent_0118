@@ -1,8 +1,11 @@
 import iconv from "iconv-lite";
 import childProcess from "node:child_process";
 import os from "node:os";
-import util from "node:util";
 import { ContinueError, ContinueErrorReason } from "../../util/errors";
+
+// Default timeout for terminal commands (2 minutes)
+const DEFAULT_TOOL_TIMEOUT_MS = 120_000;
+
 // Automatically decode the buffer according to the platform to avoid garbled Chinese
 function getDecodedOutput(data: Buffer): string {
   if (process.platform === "win32") {
@@ -44,7 +47,45 @@ import {
 } from "../../util/processTerminalStates";
 import { getBooleanArg, getStringArg } from "../parseArgs";
 
-const asyncExec = util.promisify(childProcess.exec);
+/**
+ * Resolves the working directory from workspace dirs.
+ * Falls back to home directory or temp directory if no workspace is available.
+ */
+function resolveWorkingDirectory(workspaceDirs: string[]): string {
+  // Handle file:// URIs (local workspaces)
+  const fileWorkspaceDir = workspaceDirs.find((dir) =>
+    dir.startsWith("file:/"),
+  );
+  if (fileWorkspaceDir) {
+    try {
+      return fileURLToPath(fileWorkspaceDir);
+    } catch {
+      // fileURLToPath can fail on malformed URIs or in some remote environments
+      // Fall through to default handling
+    }
+  }
+
+  // Handle other URI schemes (vscode-remote://wsl, vscode-remote://ssh-remote, etc.)
+  const remoteWorkspaceDir = workspaceDirs.find(
+    (dir) => dir.includes("://") && !dir.startsWith("file:/"),
+  );
+  if (remoteWorkspaceDir) {
+    try {
+      const url = new URL(remoteWorkspaceDir);
+      return decodeURIComponent(url.pathname);
+    } catch {
+      // Fall through to other handlers
+    }
+  }
+
+  // Default to user's home directory with fallbacks
+  try {
+    return process.env.HOME || process.env.USERPROFILE || process.cwd();
+  } catch {
+    // Final fallback if even process.cwd() fails - use system temp directory
+    return os.tmpdir();
+  }
+}
 
 // Add color-supporting environment variables
 const getColorEnv = () => ({
@@ -56,17 +97,14 @@ const getColorEnv = () => ({
   CLICOLOR_FORCE: "1",
 });
 
-const ENABLED_FOR_REMOTES = [
-  "",
-  "local",
-  "wsl",
-  "dev-container",
-  "devcontainer",
-  "ssh-remote",
-  "attached-container",
-  "codespaces",
-  "tunnel",
-];
+// Only spawn processes locally when there is no remote workspace.
+// With extensionKind: ["ui", "workspace"], the extension host almost always
+// runs on the local machine. childProcess.spawn() executes on the extension
+// host, so for any remote workspace it would run commands on the wrong machine
+// (or fail with ENOENT when the local shell doesn't match the remote OS).
+// All remote types delegate to ide.runCommand() which routes through VS Code's
+// integrated terminal and executes in the correct remote environment.
+const LOCAL_ONLY = ["", "local"];
 
 export const runTerminalCommandImpl: ToolImpl = async (args, extras) => {
   const command = getStringArg(args, "command");
@@ -77,28 +115,17 @@ export const runTerminalCommandImpl: ToolImpl = async (args, extras) => {
   const ideInfo = await extras.ide.getIdeInfo();
   const toolCallId = extras.toolCallId || "";
 
-  if (ENABLED_FOR_REMOTES.includes(ideInfo.remoteName)) {
+  if (LOCAL_ONLY.includes(ideInfo.remoteName)) {
     // For streaming output
     if (extras.onPartialOutput) {
       try {
         const workspaceDirs = await extras.ide.getWorkspaceDirs();
-
-        // Handle case where no workspace is available
-        let cwd: string;
-        if (workspaceDirs.length > 0) {
-          cwd = fileURLToPath(workspaceDirs[0]);
-        } else {
-          // Default to user's home directory with fallbacks
-          try {
-            cwd = process.env.HOME || process.env.USERPROFILE || process.cwd();
-          } catch (error) {
-            // Final fallback if even process.cwd() fails - use system temp directory
-            cwd = os.tmpdir();
-          }
-        }
+        const cwd = resolveWorkingDirectory(workspaceDirs);
 
         return new Promise((resolve, reject) => {
           let terminalOutput = "";
+          let timeoutId: ReturnType<typeof setTimeout> | undefined;
+          let sigkillTimeoutId: ReturnType<typeof setTimeout> | undefined;
 
           if (!waitForCompletion) {
             const status = "Command is running in the background...";
@@ -132,6 +159,47 @@ export const runTerminalCommandImpl: ToolImpl = async (args, extras) => {
               extras.onPartialOutput,
               terminalOutput,
             );
+          }
+
+          // Check if the child process is still running.
+          // `childProc.killed` only indicates that kill() was called,
+          // not that the process has actually exited.
+          const isRunning = () =>
+            childProc.exitCode === null && childProc.signalCode === null;
+
+          // Set up timeout for waitForCompletion mode
+          if (waitForCompletion) {
+            timeoutId = setTimeout(() => {
+              if (isRunning()) {
+                terminalOutput +=
+                  "\n[Timeout: process killed after 2 minutes]\n";
+
+                // Update UI with timeout message
+                if (extras.onPartialOutput) {
+                  extras.onPartialOutput({
+                    toolCallId,
+                    contextItems: [
+                      {
+                        name: "Terminal",
+                        description: "Terminal command output",
+                        content: terminalOutput,
+                        status: "Command timed out",
+                      },
+                    ],
+                  });
+                }
+
+                // Try graceful termination first
+                childProc.kill("SIGTERM");
+
+                // Force kill after 5 seconds if still running
+                sigkillTimeoutId = setTimeout(() => {
+                  if (isRunning()) {
+                    childProc.kill("SIGKILL");
+                  }
+                }, 5_000);
+              }
+            }, DEFAULT_TOOL_TIMEOUT_MS);
           }
 
           childProc.stdout?.on("data", (data) => {
@@ -206,6 +274,16 @@ export const runTerminalCommandImpl: ToolImpl = async (args, extras) => {
           }
 
           childProc.on("close", (code) => {
+            // Clear timeout on normal completion
+            if (timeoutId) {
+              clearTimeout(timeoutId);
+            }
+
+            // Clear inner SIGKILL timeout if process exits before grace period
+            if (sigkillTimeoutId) {
+              clearTimeout(sigkillTimeoutId);
+            }
+
             // Clean up process tracking
             if (toolCallId) {
               if (isProcessBackgrounded(toolCallId)) {
@@ -262,6 +340,16 @@ export const runTerminalCommandImpl: ToolImpl = async (args, extras) => {
           });
 
           childProc.on("error", (error) => {
+            // Clear timeout on error
+            if (timeoutId) {
+              clearTimeout(timeoutId);
+            }
+
+            // Clear SIGKILL timeout to prevent delayed kill after rejection
+            if (sigkillTimeoutId) {
+              clearTimeout(sigkillTimeoutId);
+            }
+
             // Clean up process tracking
             if (toolCallId) {
               if (isProcessBackgrounded(toolCallId)) {
@@ -281,20 +369,7 @@ export const runTerminalCommandImpl: ToolImpl = async (args, extras) => {
     } else {
       // Fallback to non-streaming for older clients
       const workspaceDirs = await extras.ide.getWorkspaceDirs();
-
-      // Handle case where no workspace is available
-      let cwd: string;
-      if (workspaceDirs.length > 0) {
-        cwd = fileURLToPath(workspaceDirs[0]);
-      } else {
-        // Default to user's home directory with fallbacks
-        try {
-          cwd = process.env.HOME || process.env.USERPROFILE || process.cwd();
-        } catch (error) {
-          // Final fallback if even process.cwd() fails - use system temp directory
-          cwd = os.tmpdir();
-        }
-      }
+      const cwd = resolveWorkingDirectory(workspaceDirs);
 
       if (waitForCompletion) {
         // Standard execution, waiting for completion
@@ -304,6 +379,9 @@ export const runTerminalCommandImpl: ToolImpl = async (args, extras) => {
             getShellCommand(command);
           const output = await new Promise<{ stdout: string; stderr: string }>(
             (resolve, reject) => {
+              let timeoutId: ReturnType<typeof setTimeout> | undefined;
+              let sigkillTimeoutId: ReturnType<typeof setTimeout> | undefined;
+
               const childProc = childProcess.spawn(
                 nonStreamingShell,
                 nonStreamingArgs,
@@ -321,6 +399,29 @@ export const runTerminalCommandImpl: ToolImpl = async (args, extras) => {
               let stdout = "";
               let stderr = "";
 
+              // Check if the child process is still running.
+              // `childProc.killed` only indicates that kill() was called,
+              // not that the process has actually exited.
+              const isRunning = () =>
+                childProc.exitCode === null && childProc.signalCode === null;
+
+              // Set up timeout
+              timeoutId = setTimeout(() => {
+                if (isRunning()) {
+                  stderr += "\n[Timeout: process killed after 2 minutes]\n";
+
+                  // Try graceful termination first
+                  childProc.kill("SIGTERM");
+
+                  // Force kill after 5 seconds if still running
+                  sigkillTimeoutId = setTimeout(() => {
+                    if (isRunning()) {
+                      childProc.kill("SIGKILL");
+                    }
+                  }, 5_000);
+                }
+              }, DEFAULT_TOOL_TIMEOUT_MS);
+
               childProc.stdout?.on("data", (data) => {
                 stdout += getDecodedOutput(data);
               });
@@ -330,6 +431,16 @@ export const runTerminalCommandImpl: ToolImpl = async (args, extras) => {
               });
 
               childProc.on("close", (code) => {
+                // Clear outer timeout
+                if (timeoutId) {
+                  clearTimeout(timeoutId);
+                }
+
+                // Clear inner SIGKILL timeout if process exits before grace period
+                if (sigkillTimeoutId) {
+                  clearTimeout(sigkillTimeoutId);
+                }
+
                 // Clean up process tracking
                 if (toolCallId) {
                   removeRunningProcess(toolCallId);
@@ -348,6 +459,16 @@ export const runTerminalCommandImpl: ToolImpl = async (args, extras) => {
               });
 
               childProc.on("error", (error) => {
+                // Clear timeout on error
+                if (timeoutId) {
+                  clearTimeout(timeoutId);
+                }
+
+                // Clear SIGKILL timeout to prevent delayed kill after rejection
+                if (sigkillTimeoutId) {
+                  clearTimeout(sigkillTimeoutId);
+                }
+
                 // Clean up process tracking
                 if (toolCallId) {
                   removeRunningProcess(toolCallId);
@@ -432,16 +553,17 @@ export const runTerminalCommandImpl: ToolImpl = async (args, extras) => {
     }
   }
 
-  // For remote environments, just run the command
-  // Note: waitForCompletion is not supported in remote environments yet
+  // For remote environments (SSH, WSL, Dev Container, Codespaces, etc.),
+  // delegate to VS Code's integrated terminal which handles remote execution.
+  // Note: output capture and waitForCompletion are not yet supported for remotes.
   await extras.ide.runCommand(command);
   return [
     {
       name: "Terminal",
       description: "Terminal command output",
       content:
-        "Terminal output not available. This is only available in local development environments and not in SSH environments for example.",
-      status: "Command failed",
+        "Command executed in remote terminal. Output capture is not yet available for remote environments.",
+      status: "Command executed",
     },
   ];
 };

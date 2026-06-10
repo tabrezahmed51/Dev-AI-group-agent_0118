@@ -9,14 +9,13 @@ import {
 } from "./autocomplete/util/openedFilesLruCache";
 import { ConfigHandler } from "./config/ConfigHandler";
 import { addModel, deleteModel } from "./config/util";
-import { getAuthUrlForTokenPage } from "./control-plane/auth/index";
-import { getControlPlaneEnv } from "./control-plane/env";
 import { DevDataSqliteDb } from "./data/devdataSqlite";
 import { DataLogger } from "./data/log";
 import { CodebaseIndexer } from "./indexing/CodebaseIndexer";
 import DocsService from "./indexing/docs/DocsService";
 import { countTokens } from "./llm/countTokens";
 import Lemonade from "./llm/llms/Lemonade";
+import { fetchModels } from "./llm/fetchModels";
 import Ollama from "./llm/llms/Ollama";
 import { EditAggregator } from "./nextEdit/context/aggregateEdits";
 import { createNewPromptFileV2 } from "./promptFiles/createNewPromptFile";
@@ -26,7 +25,7 @@ import { compactConversation } from "./util/conversationCompaction";
 import { GlobalContext } from "./util/GlobalContext";
 import historyManager from "./util/history";
 import { editConfigFile, migrateV1DevDataFiles } from "./util/paths";
-import { Telemetry } from "./util/posthog";
+
 import {
   isProcessBackgrounded,
   killTerminalProcess,
@@ -69,7 +68,6 @@ import {
 } from "./config/workspace/workspaceBlocks";
 import { MCPManagerSingleton } from "./context/mcp/MCPManagerSingleton";
 import { performAuth, removeMCPAuth } from "./context/mcp/MCPOauth";
-import { setMdmLicenseKey } from "./control-plane/mdm/mdm";
 import { myersDiff } from "./diff/myers";
 import { ApplyAbortManager } from "./edit/applyAbortManager";
 import { streamDiffLines } from "./edit/streamDiffLines";
@@ -137,19 +135,7 @@ export class Core {
 
       const ideInfoPromise = messenger.request("getIdeInfo", undefined);
       const ideSettingsPromise = messenger.request("getIdeSettings", undefined);
-      const initialSessionInfoPromise = messenger.request(
-        "getControlPlaneSessionInfo",
-        {
-          silent: true,
-          useOnboarding: false,
-        },
-      );
-
-      this.configHandler = new ConfigHandler(
-        this.ide,
-        this.llmLogger,
-        initialSessionInfoPromise,
-      );
+      this.configHandler = new ConfigHandler(this.ide, this.llmLogger);
 
       this.docsService = DocsService.createSingleton(
         this.configHandler,
@@ -188,8 +174,7 @@ export class Core {
             result: serializedResult,
             profileId:
               this.configHandler.currentProfile?.profileDescription.id || null,
-            organizations: this.configHandler.getSerializedOrgs(),
-            selectedOrgId: this.configHandler.currentOrg?.id ?? null,
+            profiles: this.configHandler.profileDescriptions,
           });
 
           if (await this.codeBaseIndexer.wasAnyOneIndexAdded()) {
@@ -293,11 +278,6 @@ export class Core {
     // Note, VsCode's in-process messenger doesn't do anything with this
     // It will only show for jetbrains
     this.messenger.onError((message, err) => {
-      void Telemetry.capture("core_messenger_error", {
-        message: err.message,
-        stack: err.stack,
-      });
-
       // just to prevent duplicate error messages in jetbrains (same logic in webview protocol)
       if (
         ["llm/streamChat", "chatDescriber/describe"].includes(
@@ -323,26 +303,9 @@ export class Core {
 
     // History
     on("history/list", async (msg) => {
-      const localSessions = historyManager.list(msg.data);
-
-      // Check if remote sessions should be enabled based on feature flags
-      const shouldFetchRemote =
-        await this.configHandler.controlPlaneClient.shouldEnableRemoteSessions();
-
-      // Get remote sessions from control plane if feature is enabled
-      const remoteSessions = shouldFetchRemote
-        ? await this.configHandler.controlPlaneClient.listRemoteSessions()
-        : [];
-
-      // Combine and sort by date (most recent first)
-      const allSessions = [...localSessions, ...remoteSessions].sort(
-        (a, b) =>
-          new Date(b.dateCreated).getTime() - new Date(a.dateCreated).getTime(),
-      );
-
-      // Apply limit if specified
+      const sessions = historyManager.list(msg.data);
       const limit = msg.data?.limit ?? 100;
-      return allSessions.slice(0, limit);
+      return sessions.slice(0, limit);
     });
 
     on("history/delete", (msg) => {
@@ -351,12 +314,6 @@ export class Core {
 
     on("history/load", (msg) => {
       return historyManager.load(msg.data.id);
-    });
-
-    on("history/loadRemote", async (msg) => {
-      return this.configHandler.controlPlaneClient.loadRemoteSession(
-        msg.data.remoteId,
-      );
     });
 
     on("history/save", (msg) => {
@@ -378,8 +335,21 @@ export class Core {
       void DataLogger.getInstance().logDevData(msg.data);
     });
 
-    on("config/addModel", (msg) => {
+    on("config/addModel", async (msg) => {
       const model = msg.data.model;
+      const { config } = await this.configHandler.loadConfig();
+      const allModels = Object.values(config?.modelsByRole ?? {}).flat();
+      const existing = allModels.find(
+        (m) => m.providerName === model.provider && m.model === model.model,
+      );
+      if (existing) {
+        void this.ide.showToast(
+          "warning",
+          "Model already exists in config. Update the API key in the config file.",
+        );
+        await this.configHandler.openConfigProfile();
+        return;
+      }
       addModel(model, msg.data.role);
       void this.configHandler.reloadConfig(
         "Model added (config/addModel message)",
@@ -403,13 +373,18 @@ export class Core {
 
     on("config/newAssistantFile", async (msg) => {
       await createNewAssistantFile(this.ide, undefined);
-      await this.configHandler.reloadConfig(
+      await this.configHandler.refreshAll(
         "Assistant file created (config/newAssistantFile message)",
       );
     });
 
     on("config/addLocalWorkspaceBlock", async (msg) => {
-      await createNewWorkspaceBlockFile(this.ide, msg.data.blockType);
+      await createNewWorkspaceBlockFile(
+        this.ide,
+        msg.data.blockType,
+        msg.data.baseFilename,
+      );
+      walkDirCache.invalidate();
       await this.configHandler.reloadConfig(
         "Local block created (config/addLocalWorkspaceBlock message)",
       );
@@ -417,11 +392,35 @@ export class Core {
 
     on("config/addGlobalRule", async (msg) => {
       try {
-        await createNewGlobalRuleFile(this.ide);
+        await createNewGlobalRuleFile(this.ide, msg.data?.baseFilename);
+        walkDirCache.invalidate();
         await this.configHandler.reloadConfig(
           "Global rule created (config/addGlobalRule message)",
         );
       } catch (error) {
+        throw error;
+      }
+    });
+
+    on("config/deleteRule", async (msg) => {
+      try {
+        const filepath = msg.data.filepath;
+        if (
+          !isColocatedRulesFile(filepath) &&
+          !isContinueConfigRelatedUri(filepath)
+        ) {
+          throw new Error("Only rule files can be deleted");
+        }
+        const fileExists = await this.ide.fileExists(filepath);
+        if (fileExists) {
+          await this.ide.removeFile(filepath);
+          walkDirCache.invalidate();
+          await this.configHandler.reloadConfig(
+            "Rule file deleted (config/deleteRule message)",
+          );
+        }
+      } catch (error) {
+        console.error("Failed to delete rule file:", error);
         throw error;
       }
     });
@@ -439,11 +438,9 @@ export class Core {
       const codebaseRulesCache = CodebaseRulesCache.getInstance();
       await codebaseRulesCache.refresh(this.ide);
 
-      const { selectOrgId, selectProfileId, reason } = msg.data ?? {};
+      const { selectProfileId, reason } = msg.data ?? {};
       await this.configHandler.refreshAll(reason);
-      if (selectOrgId) {
-        await this.configHandler.setSelectedOrgId(selectOrgId, selectProfileId);
-      } else if (selectProfileId) {
+      if (selectProfileId) {
         await this.configHandler.setSelectedProfileId(selectProfileId);
       }
     });
@@ -466,28 +463,6 @@ export class Core {
         "Selected model update (config/updateSelectedModel message)",
       );
       return newSelectedModels;
-    });
-
-    on("controlPlane/openUrl", async (msg) => {
-      const env = await getControlPlaneEnv(this.ide.getIdeSettings());
-      const urlPath = msg.data.path.startsWith("/")
-        ? msg.data.path.slice(1)
-        : msg.data.path;
-      let url;
-      if (msg.data.orgSlug) {
-        url = `${env.APP_URL}organizations/${msg.data.orgSlug}/${urlPath}`;
-      } else {
-        url = `${env.APP_URL}${urlPath}`;
-      }
-      await this.messenger.request("openUrl", url);
-    });
-
-    on("controlPlane/getEnvironment", async (msg) => {
-      return await getControlPlaneEnv(this.ide.getIdeSettings());
-    });
-
-    on("controlPlane/getCreditStatus", async (msg) => {
-      return this.configHandler.controlPlaneClient.getCreditStatus();
     });
 
     on("mcp/reloadServer", async (msg) => {
@@ -581,8 +556,7 @@ export class Core {
         result: await this.configHandler.getSerializedConfig(),
         profileId:
           this.configHandler.currentProfile?.profileDescription.id ?? null,
-        organizations: this.configHandler.getSerializedOrgs(),
-        selectedOrgId: this.configHandler.currentOrg?.id ?? null,
+        profiles: this.configHandler.profileDescriptions,
       };
     });
 
@@ -1066,30 +1040,8 @@ export class Core {
       }
     });
 
-    on("didChangeSelectedOrg", async (msg) => {
-      if (msg.data.id) {
-        await this.configHandler.setSelectedOrgId(
-          msg.data.id,
-          msg.data.profileId || undefined,
-        );
-      }
-    });
-
-    on("didChangeControlPlaneSessionInfo", async (msg) => {
-      this.messenger.send("sessionUpdate", {
-        sessionInfo: msg.data.sessionInfo,
-      });
-      await this.configHandler.updateControlPlaneSessionInfo(
-        msg.data.sessionInfo,
-      );
-    });
-
-    on("auth/getAuthUrl", async (msg) => {
-      const url = await getAuthUrlForTokenPage(
-        ideSettingsPromise,
-        msg.data.useOnboarding,
-      );
-      return { url };
+    on("auth/getAuthUrl", async (_msg) => {
+      return { url: "" };
     });
 
     on("tools/call", async ({ data: { toolCall } }) =>
@@ -1181,9 +1133,17 @@ export class Core {
       await killTerminalProcess(toolCallId);
     });
 
-    on("mdm/setLicenseKey", ({ data: { licenseKey } }) => {
-      const isValid = setMdmLicenseKey(licenseKey);
-      return isValid;
+    on("models/fetch", async (msg) => {
+      try {
+        return await fetchModels(
+          msg.data.provider,
+          msg.data.apiKey,
+          msg.data.apiBase,
+        );
+      } catch (error: any) {
+        void this.ide.showToast("error", error.message);
+        return [];
+      }
     });
   }
 
@@ -1441,10 +1401,6 @@ export class Core {
     }
 
     try {
-      void Telemetry.capture("context_provider_get_context_items", {
-        name: provider.description.title,
-      });
-
       const items = await provider.getContextItems(query, {
         config,
         llm,
@@ -1459,14 +1415,6 @@ export class Core {
           fetchwithRequestOptions(url, init, config.requestOptions),
         isInAgentMode: msg.data.isInAgentMode,
       });
-
-      void Telemetry.capture(
-        "useContextProvider",
-        {
-          name: provider.description.title,
-        },
-        true,
-      );
 
       return items.map((item) => {
         const id: ContextItemId = {

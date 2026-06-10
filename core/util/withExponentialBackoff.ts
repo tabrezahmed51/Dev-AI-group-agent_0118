@@ -14,7 +14,13 @@ const withExponentialBackoff = async <T>(
       const result = await apiCall();
       return result;
     } catch (error: any) {
-      if ((error as APIError).response?.status === 429) {
+      const lowerMessage = (error.message ?? "").toLowerCase();
+      if (
+        (error as APIError).response?.status === 429 ||
+        /"code"\s*:\s*429/.test(error.message ?? "") ||
+        lowerMessage.includes("overloaded") ||
+        lowerMessage.includes("malformed json")
+      ) {
         const retryAfter = (error as APIError).response?.headers.get(
           RETRY_AFTER_HEADER,
         );

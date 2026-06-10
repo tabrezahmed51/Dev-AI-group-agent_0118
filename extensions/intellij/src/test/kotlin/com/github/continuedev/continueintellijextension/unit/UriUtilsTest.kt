@@ -47,4 +47,32 @@ class UriUtilsTest : TestCase() {
         val file = UriUtils.uriToFile(uri)
         assertEquals(File("/wsl.localhost/Ubuntu/home/user/file.txt"), file)
     }
+
+    /**
+     * Validates that unencoded space characters in file URIs are handled
+     * correctly by the URI parser, ensuring proper conversion to File objects.
+     * This is a regression test for GitHub issue #10613.
+     */
+    fun `test unencoded spaces`() {
+        // Verify that a URI string containing literal spaces can be parsed
+        val uri = "file:///path/to/file with spaces"
+        val result = UriUtils.uriToFile(uri)
+        val expectedFile = File("/path/to/file with spaces")
+        assertEquals(expectedFile, result)
+    }
+
+    // Regression test for #10978 — bracket directories like [gamemode]
+    fun `test square brackets in path`() {
+        val uri = "file:///path/to/[gamemode]/file.lua"
+        val result = UriUtils.uriToFile(uri)
+        assertEquals(File("/path/to/[gamemode]/file.lua"), result)
+    }
+
+    fun `test Windows path with square brackets`() {
+        val uri = "file://C:/Users/user/projects/[gamemode]/file.lua"
+        val parsed = UriUtils.parseUri(uri)
+        assertEquals("file", parsed.scheme)
+        assertEquals("/C:/Users/user/projects/[gamemode]/file.lua", parsed.path)
+        assertEquals("file:///C:/Users/user/projects/%5Bgamemode%5D/file.lua", parsed.toString())
+    }
 }

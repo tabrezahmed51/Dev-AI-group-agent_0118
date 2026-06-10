@@ -1,11 +1,14 @@
 import { type AssistantConfig } from "@continuedev/sdk";
 
+import {
+  getSkillSlashCommandName,
+  loadMarkdownSkills,
+} from "../util/loadMarkdownSkills.js";
+
 // Export command functions
 export { chat } from "./chat.js";
-export { login } from "./login.js";
-export { logout } from "./logout.js";
 export { listSessionsCommand } from "./ls.js";
-export { remote } from "./remote.js";
+export { review } from "./review.js";
 export { serve } from "./serve.js";
 
 export interface SlashCommand {
@@ -31,23 +34,8 @@ export const SYSTEM_SLASH_COMMANDS: SystemCommand[] = [
     category: "system",
   },
   {
-    name: "login",
-    description: "Authenticate with your account",
-    category: "system",
-  },
-  {
-    name: "logout",
-    description: "Sign out of your current session",
-    category: "system",
-  },
-  {
     name: "update",
     description: "Update the Continue CLI",
-    category: "system",
-  },
-  {
-    name: "whoami",
-    description: "Check who you're currently logged in as",
     category: "system",
   },
   {
@@ -62,7 +50,7 @@ export const SYSTEM_SLASH_COMMANDS: SystemCommand[] = [
   },
   {
     name: "config",
-    description: "Switch configuration or organization",
+    description: "Switch configuration",
     category: "system",
   },
   {
@@ -96,13 +84,47 @@ export const SYSTEM_SLASH_COMMANDS: SystemCommand[] = [
     category: "system",
   },
   {
+    name: "rename",
+    description: "Rename the current session",
+    category: "system",
+  },
+  {
     name: "exit",
     description: "Exit the chat",
     category: "system",
   },
+  {
+    name: "jobs",
+    description: "List background jobs",
+    category: "system",
+  },
+  {
+    name: "sessions",
+    description: "Show all chat sessions",
+    category: "system",
+  },
+  {
+    name: "skills",
+    description: "List all available skills",
+    category: "system",
+  },
+  {
+    name: "import-skill",
+    description: "Import a skill from a URL or name into ~/.continue/skills",
+    category: "system",
+  },
+  {
+    name: "export",
+    description: "Export a session to JSON file",
+    category: "system",
+  },
+  {
+    name: "import",
+    description: "Import a session from JSON file",
+    category: "system",
+  },
 ];
 
-// Remote mode specific commands
 export const REMOTE_MODE_SLASH_COMMANDS: SlashCommand[] = [
   {
     name: "exit",
@@ -124,10 +146,10 @@ export const REMOTE_MODE_SLASH_COMMANDS: SlashCommand[] = [
 /**
  * Get all available slash commands including system commands and assistant prompts
  */
-export function getAllSlashCommands(
+export async function getAllSlashCommands(
   assistant: AssistantConfig,
   options: { isRemoteMode?: boolean } = {},
-): SlashCommand[] {
+): Promise<SlashCommand[]> {
   const { isRemoteMode = false } = options;
 
   // In remote mode, only show the exit command
@@ -149,7 +171,15 @@ export function getAllSlashCommands(
   // Get invokable rule commands
   const invokableRuleCommands = getInvokableRuleSlashCommands(assistant);
 
-  return [...systemCommands, ...assistantCommands, ...invokableRuleCommands];
+  // Get skill commands
+  const skillCommands = await getSkillSlashCommands();
+
+  return [
+    ...systemCommands,
+    ...assistantCommands,
+    ...invokableRuleCommands,
+    ...skillCommands,
+  ];
 }
 
 /**
@@ -195,4 +225,17 @@ export function getInvokableRuleSlashCommands(
         category: "assistant" as const,
       };
     });
+}
+
+/**
+ * Get skill-based slash commands from Markdown skills
+ */
+export async function getSkillSlashCommands(): Promise<SlashCommand[]> {
+  const { skills } = await loadMarkdownSkills();
+
+  return skills.map((skill) => ({
+    name: getSkillSlashCommandName(skill),
+    description: skill.description,
+    category: "assistant" as const,
+  }));
 }

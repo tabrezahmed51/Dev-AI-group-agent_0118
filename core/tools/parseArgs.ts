@@ -3,6 +3,17 @@ import { ToolCallDelta } from "..";
 export function safeParseToolCallArgs(
   toolCall: ToolCallDelta,
 ): Record<string, any> {
+  const args = toolCall.function?.arguments;
+
+  if (
+    args &&
+    typeof args === "object" &&
+    !Array.isArray(args) &&
+    Object.keys(args).length > 0
+  ) {
+    return args;
+  }
+
   try {
     return JSON.parse(toolCall.function?.arguments?.trim() || "{}");
   } catch (e) {
@@ -13,20 +24,81 @@ export function safeParseToolCallArgs(
   }
 }
 
+/**
+ * Coerce parsed args to match the tool's input schema types.
+ * JSON.parse() deeply parses all values, so string-typed parameters
+ * that contain valid JSON (e.g. file content for a .json file) get
+ * converted to objects. This checks the schema and re-stringifies
+ * any values that should be strings.
+ */
+export function coerceArgsToSchema(
+  args: Record<string, any>,
+  schema?: Record<string, any>,
+): Record<string, any> {
+  if (!schema?.properties) {
+    return args;
+  }
+
+  const coerced = { ...args };
+  for (const [key, value] of Object.entries(coerced)) {
+    const propSchema = schema.properties[key];
+    if (!propSchema) {
+      continue;
+    }
+
+    if (
+      propSchema.type === "string" &&
+      typeof value === "object" &&
+      value !== null
+    ) {
+      try {
+        coerced[key] = JSON.stringify(value);
+      } catch {
+        // leave as-is if stringify fails
+      }
+    }
+  }
+
+  return coerced;
+}
+
 export function getStringArg(
   args: any,
   argName: string,
   allowEmpty = false,
 ): string {
-  if (!args || !(argName in args) || typeof args[argName] !== "string") {
+  if (!args || !(argName in args)) {
     throw new Error(
       `\`${argName}\` argument is required${allowEmpty ? "" : " and must not be empty or whitespace-only"}. (type string)`,
     );
   }
-  if (!allowEmpty && !args[argName].trim()) {
+
+  let value = args[argName];
+
+  // Handle case where JSON was parsed into an object by the tool call parser.
+  // If the arguments to the tool call are valid JSON (e.g. the model attempts to create a .json file)
+  // the earlier call to JSON.parse() will have deeply parsed the returned arguments.
+  // If that has happened, convert back to string.
+  if (typeof value === "object" && value !== null) {
+    try {
+      value = JSON.stringify(value);
+      return value;
+    } catch (e) {
+      //Swallow this, because it might be fine later.
+    }
+  }
+
+  if (typeof value !== "string") {
+    throw new Error(
+      `\`${argName}\` argument is required${allowEmpty ? "" : " and must not be empty or whitespace-only"}. (type string)`,
+    );
+  }
+
+  if (!allowEmpty && !value.trim()) {
     throw new Error(`Argument ${argName} must not be empty or whitespace-only`);
   }
-  return args[argName];
+
+  return value;
 }
 
 export function getOptionalStringArg(

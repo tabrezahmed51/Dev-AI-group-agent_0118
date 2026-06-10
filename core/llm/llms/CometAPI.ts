@@ -1,5 +1,5 @@
-import { LLMOptions } from "../../index.js";
 import { allModelProviders } from "@continuedev/llm-info";
+import { LLMOptions } from "../../index.js";
 import OpenAI from "./OpenAI.js";
 
 /**
@@ -183,6 +183,7 @@ class CometAPI extends OpenAI {
    */
   private static RECOMMENDED_MODELS = [
     // GPT series
+    "gpt-5.1",
     "gpt-5-chat-latest",
     "chatgpt-4o-latest",
     "gpt-5-mini",
@@ -196,6 +197,8 @@ class CometAPI extends OpenAI {
     "o3-pro-2025-06-10",
 
     // Claude series
+    "claude-sonnet-4-6",
+    "claude-opus-4-6",
     "claude-opus-4-1-20250805",
     "claude-opus-4-1-20250805-thinking",
     "claude-sonnet-4-20250514",
@@ -204,10 +207,10 @@ class CometAPI extends OpenAI {
     "claude-3-5-haiku-latest",
 
     // Gemini series
+    "gemini-3.1-pro-preview",
     "gemini-2.5-pro",
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
-    "gemini-2.0-flash",
 
     // Grok series
     "grok-4-0709",

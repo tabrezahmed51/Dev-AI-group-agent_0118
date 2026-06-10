@@ -4,6 +4,11 @@ description: "Set up an AI-powered data engineering workflow that helps you deve
 sidebarTitle: "dlt Data Pipelines with Continue"
 ---
 
+import { OSAutoDetect } from '/snippets/OSAutoDetect.jsx'
+import CLIInstall from '/snippets/cli-install.mdx'
+
+<OSAutoDetect />
+
 <Card title="What You'll Build" icon="database">
   An AI-powered data pipeline development system that uses Continue's AI agent with dlt
   MCP to inspect pipeline execution, retrieve schemas, analyze datasets, and debug load errors - all through simple natural language prompts
@@ -13,8 +18,6 @@ sidebarTitle: "dlt Data Pipelines with Continue"
 
 Before starting, ensure you have:
 
-- Continue account with **Hub access**
-  - Read: [Understanding Configs — How to get started with Hub configs](/guides/understanding-configs#how-to-get-started-with-hub-configs)
 - Python 3.8+ installed locally
 - A dlt pipeline project (or create one during this guide)
 - Basic understanding of data pipelines
@@ -22,9 +25,7 @@ Before starting, ensure you have:
 For all options, first:
 <Steps>
 <Step title="Install Continue CLI">
-    ```bash
-    npm i -g @continuedev/cli
-    ```
+    <CLIInstall />
   </Step>
 
 <Step title="Install dlt">
@@ -34,14 +35,14 @@ For all options, first:
   </Step>
 </Steps>
  <Warning>
-  To use agents in headless mode, you need a [Continue API key](https://hub.continue.dev/settings/api-keys).
+  To use agents in headless mode, you need a [Continue API key](https://continue.dev/settings/api-keys).
   </Warning>
 
 ## dlt MCP Workflow Options
 
 <Card title="🚀 Fastest Path to Success" icon="zap">
-  Skip the manual setup and use our pre-built [dlt Agent](https://hub.continue.dev/continuedev/dlt-agent) that includes
-      the dlt MCP and optimized data pipeline workflows for more consistent results. You can [remix this agent](/guides/understanding-configs#how-to-get-started-with-hub-configs) to customize it for your specific needs.
+  Skip the manual setup and use our pre-built [dlt Agent](https://continue.dev/continuedev/dlt-agent) that includes
+      the dlt MCP and optimized data pipeline workflows for more consistent results. You can customize it for your specific needs.
 </Card>
 
 
@@ -73,24 +74,18 @@ After ensuring you meet the **Prerequisites** above, you have two paths to get s
     </Steps>
 
     <Info>
-      **Why Use the Agent?** The pre-built [dlt Agent](https://hub.continue.dev/continuedev/dlt-agent) provides consistent pipeline development workflows and handles MCP configuration automatically, making it easier to get started with AI-powered data engineering. You can [remix and customize this agent](/guides/understanding-configs#how-to-get-started-with-hub-configs) later to fit your team's specific workflow.
+      **Why Use the Agent?** The pre-built [dlt Agent](https://continue.dev/continuedev/dlt-agent) provides consistent pipeline development workflows and handles MCP configuration automatically, making it easier to get started with AI-powered data engineering. You can customize this agent later to fit your team's specific workflow.
     </Info>
 
   </Tab>
 
   <Tab title="🛠️ Manual Setup">
 <Steps>
-  <Step title="Create a New Agent via the Continue Mission Control">
-    Go to the [Continue Mission Control](https://hub.continue.dev) and [create a new agent](https://hub.continue.dev/new?type=agent).
-    </Step>
-
-  <Step title="Connect dlt MCP via Continue Mission Control">
-    Visit the [dlt MCP on Continue Mission Control](https://hub.continue.dev/dlthub/dlt-mcp) and click **Install** to add it to the agent you created in the step above.
-
-    This will add dlt MCP to your agent's available tools. The Mission Control listing automatically configures the MCP command.
+  <Step title="Add dlt MCP to Continue CLI">
+    Add the dlt MCP to your configuration:
 
     <Tip>
-      **Alternative installation methods:**
+      **Installation methods:**
       1. **Quick CLI install**: `cn --mcp dlthub/dlt-mcp`
       2. **Manual configuration**: Add the MCP to your `~/.continue/config.json` under the `mcpServers` section
 
@@ -117,9 +112,9 @@ After ensuring you meet the **Prerequisites** above, you have two paths to get s
 </Tabs>
 
 <Accordion title="Agent Requirements">
-    To use the pre-built [dlt Agent](https://hub.continue.dev/continuedev/dlt-agent), you need either:
+    To use the pre-built [dlt Agent](https://continue.dev/continuedev/dlt-agent), you need either:
       - **Continue CLI Pro Plan** with the models add-on, OR
-      - **Your own API keys** added to Continue Mission Control secrets (same as manual setup)
+      - **Your own API keys** configured as environment variables
 
     The agent will automatically detect and use your configuration along with the pre-configured dlt MCP for pipeline operations.
 
@@ -136,13 +131,13 @@ After ensuring you meet the **Prerequisites** above, you have two paths to get s
   - Query dataset records from destination databases
   - Analyze load errors, timings, and file sizes
 
-  **[dlt+ MCP](https://hub.continue.dev/dlthub/dlt-plus-mcp)** extends these capabilities with cloud-based features for production deployments:
+  **[dlt+ MCP](https://continue.dev/dlthub/dlt-plus-mcp)** extends these capabilities with cloud-based features for production deployments:
   - Connect to dlt+ Projects and manage deployments
   - Monitor pipeline runs across multiple environments
   - Access centralized logging and observability
   - Collaborate with team members on pipeline development
 
-  For local development and getting started, **[dlt MCP](https://hub.continue.dev/dlthub/dlt-mcp)** is the right choice. Consider **[dlt+ MCP](https://hub.continue.dev/dlthub/dlt-plus-mcp)** when you need production deployment features and team collaboration.
+  For local development and getting started, **[dlt MCP](https://continue.dev/dlthub/dlt-mcp)** is the right choice. Consider **[dlt+ MCP](https://continue.dev/dlthub/dlt-plus-mcp)** when you need production deployment features and team collaboration.
 </Card>
 
 ---
@@ -150,10 +145,6 @@ After ensuring you meet the **Prerequisites** above, you have two paths to get s
 ## Pipeline Development Recipes
 
 Now you can use natural language prompts to develop and debug your dlt pipelines. The Continue agent automatically calls the appropriate dlt MCP tools.
-
-<Info>
-You can add prompts to your agent's configuration for easy access in future sessions. Go to your agent in the [Continue Mission Control](https://hub.continue.dev), click **Edit**, and add prompts under the **Prompts** section.
-</Info>
 
 <Info>
   **Where to run these workflows:**
@@ -255,22 +246,22 @@ Show me what columns were added or modified.
 
 ## Continuous Data Pipelines with GitHub Actions
 
-  This example demonstrates a **Continuous AI workflow** where data pipeline validation runs automatically in your CI/CD pipeline in headless mode using the [dlt Assistant agent](https://hub.continue.dev/dlthub/dlt-assistant). Consider [remixing this agent](/guides/understanding-configs#how-to-get-started-with-hub-configs) to add your organization's specific validation rules.
+  This example demonstrates a **Continuous AI workflow** where data pipeline validation runs automatically in your CI/CD pipeline in headless mode using the [dlt Assistant agent](https://continue.dev/dlthub/dlt-assistant). Consider customizing this agent to add your organization's specific validation rules.
 
 ### Add GitHub Secrets
 
 Navigate to **Repository Settings → Secrets and variables → Actions** and add:
 
-- `CONTINUE_API_KEY`: Your Continue API key from [hub.continue.dev/settings/api-keys](https://hub.continue.dev/settings/api-keys)
+- `CONTINUE_API_KEY`: Your Continue API key from [continue.dev/settings/api-keys](https://continue.dev/settings/api-keys)
 - Any required database credentials for your destination
 
 <Info>
-      The workflow uses the pre-built [dlt Agent](https://hub.continue.dev/continuedev/dlt-agent) with `--agent continuedev/dlt-agent`. This agent comes pre-configured with the dlt MCP and optimized rules for pipeline operations. You can [remix this agent](/guides/understanding-configs#how-to-get-started-with-hub-configs) to customize the validation rules and prompts for your specific pipeline requirements.
+      The workflow uses the pre-built [dlt Agent](https://continue.dev/continuedev/dlt-agent) with `--agent continuedev/dlt-agent`. This agent comes pre-configured with the dlt MCP and optimized rules for pipeline operations. You can customize the validation rules and prompts for your specific pipeline requirements.
 </Info>
 
 ### Create Workflow File
 
-This workflow automatically validates your dlt data pipelines on pull requests using the Continue CLI in [headless mode](/cli/overview#headless-mode%3A-production-automation). It inspects pipeline schemas, checks for errors, and posts a summary report as a PR comment. The workflow can also be triggered manually via `workflow_dispatch`.
+This workflow automatically validates your dlt data pipelines on pull requests using the Continue CLI in [headless mode](/cli/headless-mode). It inspects pipeline schemas, checks for errors, and posts a summary report as a PR comment. The workflow can also be triggered manually via `workflow_dispatch`.
 
 Create `.github/workflows/dlt-pipeline-validation.yml` in your repository:
 
@@ -400,7 +391,7 @@ Test the connection and report any issues."
 
 <Check>
   **Verification Steps:**
-  - dlt MCP is installed via [Continue Mission Control](https://hub.continue.dev/dlthub/dlt-mcp)
+  - dlt MCP is installed and configured
   - Pipeline directory is accessible
   - Destination database credentials are configured
   - Pipeline has been run at least once
@@ -436,8 +427,8 @@ After completing this guide, you have a complete **AI-powered data pipeline deve
   <Card title="dlt Documentation" icon="book" href="https://dlthub.com/docs">
     Complete dlt platform documentation
   </Card>
-  <Card title="Continue Mission Control" icon="plug" href="https://hub.continue.dev">
-    Explore more MCP integrations and agents
+  <Card title="Continue Documentation" icon="book" href="https://docs.continue.dev">
+    Explore Continue documentation and guides
   </Card>
   <Card
     title="dlt Blog: MCP Deep Dive"

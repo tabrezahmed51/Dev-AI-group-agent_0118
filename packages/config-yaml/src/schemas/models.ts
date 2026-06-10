@@ -28,6 +28,7 @@ export const modelRolesSchema = z.enum([
   "edit",
   "apply",
   "summarize",
+  "subagent",
 ]);
 export type ModelRole = z.infer<typeof modelRolesSchema>;
 
@@ -58,6 +59,7 @@ export const completionOptionsSchema = z.object({
   reasoningBudgetTokens: z.number().optional(),
   promptCaching: z.boolean().optional(),
   stream: z.boolean().optional(),
+  keepAlive: z.number().optional(),
 });
 export type CompletionOptions = z.infer<typeof completionOptionsSchema>;
 
@@ -86,10 +88,38 @@ export const embedOptionsSchema = z.object({
 });
 export type EmbedOptions = z.infer<typeof embedOptionsSchema>;
 
+/**
+ * Schema for overriding a tool's system message description.
+ * Used for models that don't support native tool calling.
+ */
+export const systemMessageDescriptionOverrideSchema = z.object({
+  prefix: z.string().optional(),
+  exampleArgs: z
+    .array(z.tuple([z.string(), z.union([z.string(), z.number()])]))
+    .optional(),
+});
+
+/**
+ * Schema for overriding built-in tool prompts.
+ * Allows customization of tool descriptions and behavior per model.
+ */
+export const toolOverrideSchema = z.object({
+  description: z.string().optional(),
+  displayTitle: z.string().optional(),
+  wouldLikeTo: z.string().optional(),
+  isCurrently: z.string().optional(),
+  hasAlready: z.string().optional(),
+  systemMessageDescription: systemMessageDescriptionOverrideSchema.optional(),
+  disabled: z.boolean().optional(),
+});
+export type ToolOverrideConfig = z.infer<typeof toolOverrideSchema>;
+
 export const chatOptionsSchema = z.object({
   baseSystemMessage: z.string().optional(),
   baseAgentSystemMessage: z.string().optional(),
   basePlanSystemMessage: z.string().optional(),
+  /** Tool overrides keyed by tool name (e.g., "run_terminal_command") */
+  toolOverrides: z.record(z.string(), toolOverrideSchema).optional(),
 });
 export type ChatOptions = z.infer<typeof chatOptionsSchema>;
 
@@ -150,6 +180,7 @@ const baseModelFields = {
   model: z.string(),
   apiKey: z.string().optional(),
   apiBase: z.string().optional(),
+  contextLength: z.number().optional(),
   maxStopWords: z.number().optional(),
   roles: modelRolesSchema.array().optional(),
   capabilities: modelCapabilitySchema.array().optional(),
@@ -160,43 +191,24 @@ const baseModelFields = {
   chatOptions: chatOptionsSchema.optional(),
   promptTemplates: promptTemplatesSchema.optional(),
   useLegacyCompletionsEndpoint: z.boolean().optional(),
+  useResponsesApi: z.boolean().optional(),
   env: z
     .record(z.string(), z.union([z.string(), z.boolean(), z.number()]))
     .optional(),
   autocompleteOptions: autocompleteOptionsSchema.optional(),
 };
 
-export const modelSchema = z.union([
-  z.object({
-    ...baseModelFields,
-    provider: z.literal("continue-proxy"),
-    apiKeyLocation: z.string().optional(),
-    envSecretLocations: z.record(z.string(), z.string()).optional(),
-    orgScopeId: z.string().nullable(),
-    onPremProxyUrl: z.string().nullable(),
-  }),
-  z.object({
-    ...baseModelFields,
-    provider: z.string().refine((val) => val !== "continue-proxy"),
-    sourceFile: z.string().optional(),
-  }),
-]);
+export const modelSchema = z.object({
+  ...baseModelFields,
+  provider: z.string(),
+  sourceFile: z.string().optional(),
+});
 
-export const partialModelSchema = z.union([
-  z
-    .object({
-      ...baseModelFields,
-      provider: z.literal("continue-proxy"),
-      apiKeyLocation: z.string().optional(),
-      envSecretLocations: z.record(z.string(), z.string()).optional(),
-    })
-    .partial(),
-  z
-    .object({
-      ...baseModelFields,
-      provider: z.string().refine((val) => val !== "continue-proxy"),
-    })
-    .partial(),
-]);
+export const partialModelSchema = z
+  .object({
+    ...baseModelFields,
+    provider: z.string(),
+  })
+  .partial();
 
 export type ModelConfig = z.infer<typeof modelSchema>;

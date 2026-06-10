@@ -4,6 +4,11 @@ description: "Learn how to audit Row Level Security in your Supabase database, i
 sidebarTitle: "Supabase RLS Security Audit"
 ---
 
+import { OSAutoDetect } from '/snippets/OSAutoDetect.jsx'
+import CLIInstall from '/snippets/cli-install.mdx'
+
+<OSAutoDetect />
+
 <Card title="What You'll Build" icon="shield-check">
   A security audit workflow that uses Continue CLI with Supabase MCP to identify RLS vulnerabilities, generate secure policies, fix permission issues, and ensure your database follows security best practices.
 </Card>
@@ -29,13 +34,11 @@ Before starting, ensure you have:
 
 <Steps>
   <Step title="Install Continue CLI">
-    ```bash
-    npm i -g @continuedev/cli
-    ```
+    <CLIInstall />
   </Step>
 
   <Step title="Set up Continue CLI Account & API Key">
-    1. Visit [Continue Organizations](https://hub.continue.dev/settings/organizations)
+    1. Visit [Continue Organizations](https://continue.dev/settings/organizations)
     2. Sign up or log in to your Continue account
     3. Navigate to your organization settings
     4. Click **"API Keys"** and then **"+ New API Key"**
@@ -140,7 +143,7 @@ First, you'll need to set up access to your Supabase project.
 
     <Steps>
       <Step title="Add the Pre-Built Agent">
-        Visit the [Supabase Agent](https://hub.continue.dev/continuedev/supabase-agent) on Continue Mission Control and click **"Install Agent"** or run:
+        Run:
         
         ```bash
         cn --agent continuedev/supabase-agent
@@ -208,8 +211,8 @@ First, you'll need to set up access to your Supabase project.
 <Accordion title="Agent Requirements">
   To use the pre-built agent, you need either:
   - **Continue CLI Pro Plan** with the models add-on, OR
-  - **Your own API keys** added to Continue Mission Control secrets
-  
+  - **Your own API keys** configured as environment variables
+
   The agent will automatically detect and use your configuration. For Supabase MCP:
   - **Supabase account** with at least one project
   - **OAuth authentication** (handled automatically)
@@ -425,7 +428,7 @@ jobs:
 
 <Warning>
   **Required GitHub Secrets**:
-  - `CONTINUE_API_KEY`: Your Continue API key from [hub.continue.dev/settings/api-keys](https://hub.continue.dev/settings/api-keys)
+  - `CONTINUE_API_KEY`: Your Continue API key from [continue.dev/settings/api-keys](https://continue.dev/settings/api-keys)
 
   Add this at: **Repository Settings → Secrets and variables → Actions**
 </Warning>
@@ -500,7 +503,6 @@ If you encounter connection issues:
 - Set up [Supabase Edge Functions](https://supabase.com/docs/guides/functions) for automated workflows
 - Configure [Supabase Realtime](https://supabase.com/docs/guides/realtime) for live data monitoring
 - Implement [Database Webhooks](https://supabase.com/docs/guides/database/webhooks) for event-driven automation
-- Join the [Continue Discord](https://discord.gg/continue) for support
 
 ## Resources
 

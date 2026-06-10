@@ -35,9 +35,9 @@ import { BaseLLM } from "../index.js";
 class Anthropic extends BaseLLM {
   static providerName = "anthropic";
   static defaultOptions: Partial<LLMOptions> = {
-    model: "claude-3-5-sonnet-latest",
+    model: "claude-sonnet-4-6",
     completionOptions: {
-      model: "claude-3-5-sonnet-latest",
+      model: "claude-sonnet-4-6",
       maxTokens: 8192,
     },
     apiBase: "https://api.anthropic.com/v1/",
@@ -407,7 +407,7 @@ class Anthropic extends BaseLLM {
   ): AsyncGenerator<ChatMessage> {
     if (!this.apiKey || this.apiKey === "") {
       throw new Error(
-        "Request not sent. You have an Anthropic model configured in your config.json, but the API key is not set.",
+        "Request not sent. You have an Anthropic model configured in your config.yaml, but the API key is not set.",
       );
     }
 
@@ -426,6 +426,7 @@ class Anthropic extends BaseLLM {
     const headers = getAnthropicHeaders(
       this.apiKey,
       shouldCacheSystemMessage || shouldCachePrompt,
+      this.apiBase,
     );
 
     const body: MessageCreateParams = {

@@ -228,10 +228,10 @@ describe("errorAnalysis", () => {
     });
 
     describe("selectedModel handling", () => {
-      it("should use selectedModel title and provider", () => {
+      it("should use selectedModel title and underlyingProviderName", () => {
         const selectedModel = {
           title: "GPT-4",
-          provider: "openai",
+          underlyingProviderName: "openai",
         };
         const error = new Error("Test error");
         const result = analyzeError(error, selectedModel);
@@ -246,7 +246,7 @@ describe("errorAnalysis", () => {
       it("should use selectedModel info when no matching provider is found", () => {
         const selectedModel = {
           title: "Custom Model",
-          provider: "unknown-provider",
+          underlyingProviderName: "unknown-provider",
         };
         const error = new Error("Test error");
         const result = analyzeError(error, selectedModel);
@@ -258,7 +258,7 @@ describe("errorAnalysis", () => {
 
       it("should handle selectedModel with missing title", () => {
         const selectedModel = {
-          provider: "openai",
+          underlyingProviderName: "openai",
         };
         const error = new Error("Test error");
         const result = analyzeError(error, selectedModel);
@@ -270,7 +270,7 @@ describe("errorAnalysis", () => {
         );
       });
 
-      it("should handle selectedModel with missing provider", () => {
+      it("should handle selectedModel with missing underlyingProviderName", () => {
         const selectedModel = {
           title: "Custom Model",
         };
@@ -297,7 +297,7 @@ describe("errorAnalysis", () => {
       it("should match Anthropic provider", () => {
         const selectedModel = {
           title: "Claude 3.5 Sonnet",
-          provider: "anthropic",
+          underlyingProviderName: "anthropic",
         };
         const error = new Error("Test error");
         const result = analyzeError(error, selectedModel);
@@ -311,7 +311,7 @@ describe("errorAnalysis", () => {
       it("should match Groq provider", () => {
         const selectedModel = {
           title: "Llama 3.1 70B",
-          provider: "groq",
+          underlyingProviderName: "groq",
         };
         const error = new Error("Test error");
         const result = analyzeError(error, selectedModel);
@@ -323,7 +323,7 @@ describe("errorAnalysis", () => {
       it("should match provider with no apiKeyUrl", () => {
         const selectedModel = {
           title: "Llama 3.1",
-          provider: "ollama",
+          underlyingProviderName: "ollama",
         };
         const error = new Error("Test error");
         const result = analyzeError(error, selectedModel);
@@ -335,7 +335,7 @@ describe("errorAnalysis", () => {
       it("should be case sensitive for provider matching", () => {
         const selectedModel = {
           title: "GPT-4",
-          provider: "OpenAI", // Different case
+          underlyingProviderName: "OpenAI", // Different case
         };
         const error = new Error("Test error");
         const result = analyzeError(error, selectedModel);
@@ -352,7 +352,7 @@ describe("errorAnalysis", () => {
         );
         const selectedModel = {
           title: "GPT-4",
-          provider: "openai",
+          underlyingProviderName: "openai",
         };
         const result = analyzeError(error, selectedModel);
 
@@ -382,7 +382,7 @@ describe("errorAnalysis", () => {
         );
         const selectedModel = {
           title: "GPT-4",
-          provider: "openai",
+          underlyingProviderName: "openai",
         };
         const result = analyzeError(error, selectedModel);
 
@@ -486,7 +486,7 @@ describe("errorAnalysis", () => {
         );
         const selectedModel = {
           title: "GPT-4",
-          provider: "openai",
+          underlyingProviderName: "openai",
         };
         const result = analyzeError(error, selectedModel);
 
@@ -502,7 +502,7 @@ describe("errorAnalysis", () => {
         );
         const selectedModel = {
           title: "Claude 3.5 Sonnet",
-          provider: "anthropic",
+          underlyingProviderName: "anthropic",
         };
         const result = analyzeError(error, selectedModel);
 
@@ -514,7 +514,7 @@ describe("errorAnalysis", () => {
         const error = new Error("Network request failed");
         const selectedModel = {
           title: "Local Model",
-          provider: "ollama",
+          underlyingProviderName: "ollama",
         };
         const result = analyzeError(error, selectedModel);
 
@@ -529,6 +529,117 @@ describe("errorAnalysis", () => {
 
         expect(result.parsedError).toBe("Request timeout");
         expect(result.statusCode).toBe(undefined);
+      });
+    });
+
+    describe("custom error detection", () => {
+      it("should detect OpenAI organization verification error for reasoning summaries", () => {
+        const error = new Error(
+          "OpenAI error: organization must be verified to generate reasoning summaries",
+        );
+        const result = analyzeError(error, null);
+
+        expect(result.helpUrl).toBe(
+          "https://help.openai.com/en/articles/10910291-api-organization-verification",
+        );
+        expect(result.customErrorMessage).toContain("useResponsesApi");
+      });
+
+      it("should detect OpenAI organization verification error for streaming", () => {
+        const error = new Error(
+          "OpenAI error: organization must be verified to stream this model",
+        );
+        const result = analyzeError(error, null);
+
+        expect(result.helpUrl).toBe(
+          "https://help.openai.com/en/articles/10910291-api-organization-verification",
+        );
+        expect(result.customErrorMessage).toContain("useResponsesApi");
+      });
+
+      it("should detect OpenAI org verification error case-insensitively", () => {
+        const error = new Error(
+          "OPENAI: Organization Must Be Verified To Generate Reasoning Summaries",
+        );
+        const result = analyzeError(error, null);
+
+        expect(result.helpUrl).toBe(
+          "https://help.openai.com/en/articles/10910291-api-organization-verification",
+        );
+      });
+
+      it("should not detect org verification for partial matches", () => {
+        const error = new Error("organization must be verified");
+        const result = analyzeError(error, null);
+
+        // Should not match without "openai"
+        expect(result.helpUrl).toBeUndefined();
+      });
+
+      it("should detect 'Incorrect API key provided' error", () => {
+        const error = new Error(
+          '401 Unauthorized\n\n{"error": {"message": "Incorrect API key provided"}}',
+        );
+        const result = analyzeError(error, null);
+
+        expect(result.customErrorMessage).toContain(
+          "API key is actually invalid",
+        );
+      });
+
+      it("should detect 'Invalid API Key' error", () => {
+        const error = new Error("Invalid API Key");
+        const result = analyzeError(error, null);
+
+        expect(result.customErrorMessage).toContain(
+          "API key is actually invalid",
+        );
+      });
+
+      it("should detect 'invalid x-api-key' error", () => {
+        const error = new Error("invalid x-api-key");
+        const result = analyzeError(error, null);
+
+        expect(result.customErrorMessage).toContain(
+          "API key is actually invalid",
+        );
+      });
+
+      it("should detect failed secret templating in API key", () => {
+        const error = new Error("Invalid API Key");
+        const selectedModel = {
+          title: "GPT-4",
+          underlyingProviderName: "openai",
+          apiKey: "secrets.OPENAI_API_KEY",
+        };
+        const result = analyzeError(error, selectedModel);
+
+        expect(result.customErrorMessage).toContain("API key secret not found");
+      });
+
+      it("should detect 402 Insufficient Balance error", () => {
+        const error = new Error("402 Payment Required");
+        const selectedModel = {
+          title: "DeepSeek Chat",
+          underlyingProviderName: "deepseek",
+        };
+        const result = analyzeError(error, selectedModel);
+
+        expect(result.customErrorMessage).toContain("out of credits");
+        expect(result.customErrorMessage).toContain("DeepSeek");
+      });
+
+      it("should detect Insufficient Balance in error message", () => {
+        const error = new Error(
+          '400 Bad Request\n\n{"error": {"message": "Insufficient Balance"}}',
+        );
+        const selectedModel = {
+          title: "DeepSeek Chat",
+          underlyingProviderName: "deepseek",
+        };
+        const result = analyzeError(error, selectedModel);
+
+        expect(result.customErrorMessage).toContain("out of credits");
       });
     });
   });

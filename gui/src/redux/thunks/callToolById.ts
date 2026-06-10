@@ -1,8 +1,8 @@
 import { createAsyncThunk, unwrapResult } from "@reduxjs/toolkit";
-import { ContextItem } from "core";
+import { ContextItem, McpUiState } from "core";
 import { CLIENT_TOOLS_IMPLS } from "core/tools/builtIn";
 import { ContinueError, ContinueErrorReason } from "core/util/errors";
-import posthog from "posthog-js";
+
 import { callClientTool } from "../../util/clientTools/callClientTool";
 import { selectSelectedChatModel } from "../slices/configSlice";
 import {
@@ -34,17 +34,7 @@ export const callToolById = createAsyncThunk<
     return;
   }
 
-  // Track tool call acceptance and start timing
-  const startTime = Date.now();
-
   const selectedChatModel = selectSelectedChatModel(state);
-
-  posthog.capture("tool_call_decision", {
-    model: selectedChatModel,
-    decision: isAutoApproved ? "auto_accept" : "accept",
-    toolName: toolCallState.toolCall.function.name,
-    toolCallId: toolCallId,
-  });
 
   if (!selectedChatModel) {
     throw new Error("No model selected");
@@ -57,6 +47,7 @@ export const callToolById = createAsyncThunk<
   );
 
   let output: ContextItem[] | undefined = undefined;
+  let mcpUiState: McpUiState | undefined = undefined;
   let error: ContinueError | undefined = undefined;
   let streamResponse: boolean;
 
@@ -92,6 +83,7 @@ export const callToolById = createAsyncThunk<
       throw new Error(result.error);
     } else {
       output = result.content.contextItems;
+      mcpUiState = result.content.mcpUiState;
       error = result.content.errorMessage
         ? new ContinueError(
             result.content.errorReason || ContinueErrorReason.Unspecified,
@@ -122,19 +114,10 @@ export const callToolById = createAsyncThunk<
       updateToolCallOutput({
         toolCallId,
         contextItems: output,
+        mcpUiState,
       }),
     );
   }
-
-  // Capture telemetry for tool call execution outcome with duration
-  const duration_ms = Date.now() - startTime;
-  posthog.capture("tool_call_outcome", {
-    model: selectedChatModel,
-    succeeded: !error,
-    toolName: toolCallState.toolCall.function.name,
-    errorReason: error?.reason,
-    duration_ms: duration_ms,
-  });
 
   if (streamResponse) {
     if (error) {

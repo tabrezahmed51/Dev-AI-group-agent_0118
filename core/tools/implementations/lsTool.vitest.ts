@@ -13,15 +13,15 @@ const mockExtras = {
 } as unknown as ToolExtras;
 
 test("resolveLsToolDirPath handles undefined path", () => {
-  expect(resolveLsToolDirPath(undefined)).toBe("/");
+  expect(resolveLsToolDirPath(undefined)).toBe(".");
 });
 
 test("resolveLsToolDirPath handles empty string", () => {
-  expect(resolveLsToolDirPath("")).toBe("/");
+  expect(resolveLsToolDirPath("")).toBe(".");
 });
 
 test("resolveLsToolDirPath handles dot", () => {
-  expect(resolveLsToolDirPath(".")).toBe("/");
+  expect(resolveLsToolDirPath(".")).toBe(".");
 });
 
 test("resolveLsToolDirPath handles dot relative", () => {
@@ -34,6 +34,19 @@ test("resolveLsToolDirPath normalizes backslashes to forward slashes", () => {
 
 test("resolveLsToolDirPath preserves forward slashes", () => {
   expect(resolveLsToolDirPath("path/to/dir")).toBe("path/to/dir");
+});
+
+test("resolveLsToolDirPath preserves hidden directory paths", () => {
+  expect(resolveLsToolDirPath(".continue/rules")).toBe(".continue/rules");
+});
+
+test("resolveLsToolDirPath preserves hidden directory name only", () => {
+  expect(resolveLsToolDirPath(".git")).toBe(".git");
+});
+
+test("resolveLsToolDirPath preserves parent directory references", () => {
+  expect(resolveLsToolDirPath("..")).toBe("..");
+  expect(resolveLsToolDirPath("../foo")).toBe("../foo");
 });
 
 test("lsToolImpl truncates output when entries exceed MAX_LS_TOOL_LINES", async () => {

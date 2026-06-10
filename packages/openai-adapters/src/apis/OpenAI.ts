@@ -19,18 +19,18 @@ import { z } from "zod";
 import { OpenAIConfigSchema } from "../types.js";
 import { customFetch } from "../util.js";
 import {
+  BaseLlmApi,
+  CreateRerankResponse,
+  FimCreateParamsStreaming,
+  RerankCreateParams,
+} from "./base.js";
+import {
   createResponsesStreamState,
   fromResponsesChunk,
   isResponsesModel,
   responseToChatCompletion,
   toResponsesParams,
 } from "./openaiResponses.js";
-import {
-  BaseLlmApi,
-  CreateRerankResponse,
-  FimCreateParamsStreaming,
-  RerankCreateParams,
-} from "./base.js";
 
 export class OpenAIApi implements BaseLlmApi {
   openai: OpenAI;
@@ -38,17 +38,30 @@ export class OpenAIApi implements BaseLlmApi {
 
   constructor(protected config: z.infer<typeof OpenAIConfigSchema>) {
     this.apiBase = config.apiBase ?? this.apiBase;
+
+    // Always create the original OpenAI client for fallback
     this.openai = new OpenAI({
       // Necessary because `new OpenAI()` will throw an error if there is no API Key
       apiKey: config.apiKey ?? "",
       baseURL: this.apiBase,
       fetch: customFetch(config.requestOptions),
+      timeout: config?.requestOptions?.timeout || undefined,
     });
   }
   modifyChatBody<T extends ChatCompletionCreateParams>(body: T): T {
     // Add stream_options to include usage in streaming responses
     if (body.stream) {
       (body as any).stream_options = { include_usage: true };
+    }
+
+    // DeepSeek reasoner models use max_completion_tokens instead of max_tokens
+    if (
+      body.max_tokens &&
+      (this.apiBase?.includes("api.deepseek.com") ||
+        body.model.includes("deepseek-reasoner"))
+    ) {
+      body.max_completion_tokens = body.max_tokens;
+      body.max_tokens = undefined;
     }
 
     // o-series models - only apply for official OpenAI API
@@ -75,6 +88,9 @@ export class OpenAIApi implements BaseLlmApi {
   }
 
   protected shouldUseResponsesEndpoint(model: string): boolean {
+    if (this.config.useResponsesApi === false) {
+      return false;
+    }
     const isOfficialOpenAIAPI = this.apiBase === "https://api.openai.com/v1/";
     return isOfficialOpenAIAPI && isResponsesModel(model);
   }

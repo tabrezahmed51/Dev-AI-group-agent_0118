@@ -5,7 +5,7 @@ sidebarTitle: "Amazon Bedrock"
 ---
 
 <Tip>
-  **Discover Amazon Bedrock models [here](https://hub.continue.dev/amazon)**
+  **Discover Amazon Bedrock models [here](https://continue.dev/amazon)**
 </Tip>
 
 <Info>
@@ -17,6 +17,10 @@ sidebarTitle: "Amazon Bedrock"
 <Tabs>
   <Tab title="YAML">
   ```yaml title="config.yaml"
+  name: My Config
+  version: 0.0.1
+  schema: v1
+
   models:
     - name: <MODEL_NAME>
       provider: bedrock
@@ -46,7 +50,7 @@ sidebarTitle: "Amazon Bedrock"
 </Tabs>
 
 <Info>
-  **Check out a more advanced configuration [here](https://hub.continue.dev/amazon/us-anthropic-claude-sonnet-4-20250514-v1?view=config)**
+  **Check out a more advanced configuration [here](https://continue.dev/amazon/us-anthropic-claude-sonnet-4-20250514-v1?view=config)**
 </Info>
 
 ## How to Enable Prompt Caching with Amazon Bedrock
@@ -57,6 +61,10 @@ messages between requests. Enable this behavior by adding
 configuration.
 
 ```yaml title="config.yaml"
+name: My Config
+version: 0.0.1
+schema: v1
+
 models:
   - name: <MODEL_NAME>
     provider: bedrock
@@ -68,6 +76,24 @@ models:
 Prompt caching is not supported in JSON configuration files, so use the YAML syntax above to enable it.
 
 ## How to Set Up Authentication for Amazon Bedrock
+
+### Bedrock API Keys
+
+[Bedrock API keys](https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html) let you authenticate without IAM credentials. Set your API key via the `apiKey` field:
+
+```yaml title="config.yaml"
+models:
+  - name: Claude Sonnet
+    provider: bedrock
+    model: us.anthropic.claude-sonnet-4-20250514-v1:0
+    apiKey: ${{ secrets.BEDROCK_API_KEY }}
+    env:
+      region: us-east-1
+    roles:
+      - chat
+```
+
+### AWS Credentials
 
 Authentication will be through temporary or long-term credentials in
 `~/.aws/credentials` under a configured profile (e.g. "bedrock").
@@ -84,6 +110,10 @@ You can also use an AWS `accessKeyId` and `secretAccessKey` for authentication i
 <Tabs>
   <Tab title="YAML">
   ```yaml title="config.yaml"
+  name: My Config
+  version: 0.0.1
+  schema: v1
+
   models:
     - name: <MODEL_NAME>
       provider: bedrock
@@ -121,6 +151,10 @@ To setup Bedrock using custom imported models, add the following to your config 
 <Tabs>
   <Tab title="YAML">
   ```yaml title="config.yaml"
+  name: My Config
+  version: 0.0.1
+  schema: v1
+
   models:
     - name: <MODEL_NAME>
       provider: bedrockimport

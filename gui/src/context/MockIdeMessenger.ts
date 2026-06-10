@@ -1,5 +1,4 @@
 import { ChatMessage, IDE, PromptLog } from "core";
-import { AuthType } from "core/control-plane/AuthTypes";
 import {
   FromWebviewProtocol,
   ToCoreProtocol,
@@ -33,12 +32,6 @@ const DEFAULT_MOCK_CORE_RESPONSES: MockResponses = {
     contents: "Current file contents",
     path: "file:///Users/user/workspace1/current_file.py",
   },
-  "controlPlane/getCreditStatus": {
-    optedInToFreeTrial: false,
-    creditBalance: 0,
-    hasCredits: false,
-    hasPurchasedCredits: false,
-  },
   getWorkspaceDirs: [
     "file:///Users/user/workspace1",
     "file:///Users/user/workspace2",
@@ -46,46 +39,40 @@ const DEFAULT_MOCK_CORE_RESPONSES: MockResponses = {
   "history/list": [],
   "docs/getIndexedPages": [],
   "history/save": undefined,
-  getControlPlaneSessionInfo: {
-    AUTH_TYPE: AuthType.WorkOsStaging,
-    accessToken: "",
-    account: {
-      label: "",
-      id: "",
-    },
-  },
   "config/getSerializedProfileInfo": {
-    organizations: [
-      {
-        id: "personal",
-        profiles: [
-          {
-            title: "Local Agent",
-            id: "local",
-            errors: [],
-            profileType: "local",
-            uri: "",
-            iconUrl: "",
-            fullSlug: {
-              ownerSlug: "",
-              packageSlug: "",
-              versionSlug: "",
-            },
-          },
-        ],
-        slug: "",
-        selectedProfileId: "local",
-        name: "Personal",
-        iconUrl: "",
-      },
-    ],
     profileId: "local",
+    profiles: [],
     result: {
-      config: undefined,
+      config: {
+        tools: [],
+        slashCommands: [],
+        contextProviders: [],
+        mcpServerStatuses: [],
+        modelsByRole: {
+          chat: [],
+          apply: [],
+          edit: [],
+          summarize: [],
+          autocomplete: [],
+          rerank: [],
+          embed: [],
+          subagent: [],
+        },
+        selectedModelByRole: {
+          chat: null,
+          apply: null,
+          edit: null,
+          summarize: null,
+          autocomplete: null,
+          rerank: null,
+          embed: null,
+          subagent: null,
+        },
+        rules: [],
+      },
       errors: [],
       configLoadInterrupted: false,
     },
-    selectedOrgId: "personal",
   },
   "chatDescriber/describe": "Session summary",
   applyToFile: undefined,
@@ -124,7 +111,6 @@ const DEFAULT_MOCK_CORE_RESPONSES: MockResponses = {
       },
     },
   ],
-  listBackgroundAgents: { agents: [], totalCount: 0 },
 };
 
 const DEFAULT_MOCK_CORE_RESPONSE_HANDLERS: MockResponseHandlers = {

@@ -15,6 +15,7 @@ downloads/
 eggs/
 .eggs/
 lib/
+!docs-site/lib/
 lib64/
 parts/
 sdist/
@@ -171,8 +172,10 @@ extensions/.continue-debug/
 
 .continuerules
 **/.continue/assistants/
-**/.continue/agents/
 keys
 
 .channels_cache.json
 .users_cache.json
+.copy-status
+.copy-log
+

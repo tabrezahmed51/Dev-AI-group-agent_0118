@@ -9,7 +9,6 @@ import { processCommandFlags } from "../flags/flagProcessor.js";
 import { safeStderr, safeStdout } from "../init.js";
 import { configureLogger } from "../logger.js";
 import * as logging from "../logging.js";
-import { sentryService } from "../sentry.js";
 import { initializeServices, services } from "../services/index.js";
 import { serviceContainer } from "../services/ServiceContainer.js";
 import {
@@ -23,7 +22,6 @@ import {
   updateSessionTitle,
 } from "../session.js";
 import { streamChatResponse } from "../stream/streamChatResponse.js";
-import { posthogService } from "../telemetry/posthogService.js";
 import { telemetryService } from "../telemetry/telemetryService.js";
 import { startTUIChat } from "../ui/index.js";
 import { gracefulExit } from "../util/exit.js";
@@ -34,7 +32,6 @@ import { prependPrompt } from "../util/promptProcessor.js";
 import {
   calculateContextUsagePercentage,
   countChatHistoryTokens,
-  shouldAutoCompact,
 } from "../util/tokenizer.js";
 
 import { ExtendedCommandOptions } from "./BaseCommandOptions.js";
@@ -249,7 +246,10 @@ async function handleAutoCompaction(
               message: "Auto-compacting triggered",
               contextUsage:
                 calculateContextUsagePercentage(
-                  countChatHistoryTokens(services.chatHistory.getHistory()),
+                  countChatHistoryTokens(
+                    services.chatHistory.getHistory(),
+                    model,
+                  ),
                   model,
                 ) + "%",
             }) + "\n",
@@ -363,18 +363,17 @@ async function processMessage(
   telemetryService.logUserPrompt(userInput.length, userInput);
 
   // Check if auto-compacting is needed BEFORE adding user message
-  if (shouldAutoCompact(services.chatHistory.getHistory(), model)) {
-    const newIndex = await handleAutoCompaction(
-      chatHistory,
-      model,
-      llmApi,
-      isHeadless,
-      format,
-    );
-    if (newIndex !== null) {
-      compactionIndex = newIndex;
-      // Service already updated in handleAutoCompaction via setHistory
-    }
+  // The handleAutoCompaction function decides whether compaction is actually needed
+  const autoCompactionResult = await handleAutoCompaction(
+    chatHistory,
+    model,
+    llmApi,
+    isHeadless,
+    format,
+  );
+  if (autoCompactionResult !== null) {
+    compactionIndex = autoCompactionResult;
+    // Service already updated in handleAutoCompaction via setHistory
   }
 
   // Add user message to history AFTER potential compaction
@@ -425,12 +424,6 @@ async function processMessage(
         ),
       );
     }
-
-    sentryService.captureException(error, {
-      context: "chat_response",
-      isHeadless,
-      chatHistoryLength: services.chatHistory.getHistory().length,
-    });
 
     // In headless mode, re-throw the error to bubble up to main error handler
     // This preserves downstream logic like telemetry cleanup
@@ -492,6 +485,27 @@ async function runHeadlessMode(
     initialPrompt,
   );
 
+  // Critical validation: Ensure we have actual prompt text in headless mode
+  // This prevents the CLI from hanging in TTY-less environments when question() is called
+  // We check AFTER processing all prompts (including agent files) to ensure we have real content
+  // EXCEPTION: Allow empty prompts when resuming/forking since they may just want to view history
+  if (!initialUserInput || !initialUserInput.trim()) {
+    // If resuming or forking, allow empty prompt - just exit successfully after showing history
+    if (options.resume || options.fork) {
+      // For resume/fork with no new input, we've already loaded the history above
+      // Just exit successfully (the history was already loaded into chatHistory)
+      await gracefulExit(0);
+      return;
+    }
+
+    throw new Error(
+      'Headless mode requires a prompt. Use: cn -p "your prompt"\n' +
+        'Or pipe input: echo "prompt" | cn -p\n' +
+        "Or use agent files: cn -p --agent my-org/my-agent\n" +
+        "Note: Agent files must contain a prompt field.",
+    );
+  }
+
   let isFirstMessage = true;
   while (true) {
     // When in headless mode, don't ask for user input
@@ -539,11 +553,19 @@ export async function chat(prompt?: string, options: ChatOptions = {}) {
   try {
     // Record session start
     telemetryService.recordSessionStart();
-    await posthogService.capture("sessionStart", {});
 
     // Start active time tracking
     telemetryService.startActiveTime();
 
+    // Critical routing: Explicit separation of headless and interactive modes
+    if (options.headless) {
+      // Headless path - no Ink, no TUI, works in TTY-less environments
+      logger.debug("Running in headless mode (TTY-less compatible)");
+      await runHeadlessMode(prompt, options);
+      return;
+    }
+
+    // Interactive path - requires TTY for Ink rendering
     // If not in headless mode, use unified initialization with TUI
     if (!options.headless) {
       // Process flags for TUI mode
@@ -607,11 +629,6 @@ export async function chat(prompt?: string, options: ChatOptions = {}) {
       // Use headless-aware error logging for non-headless mode
       logging.error(chalk.red(`Fatal error: ${formatError(err)}`));
     }
-
-    sentryService.captureException(err, {
-      context: "chat_command_fatal",
-      headless: options.headless,
-    });
 
     // Stop active time tracking BEFORE graceful exit
     telemetryService.stopActiveTime();

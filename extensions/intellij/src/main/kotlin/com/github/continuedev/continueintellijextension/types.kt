@@ -128,16 +128,6 @@ data class DocumentSymbol(
     val selectionRange: Range
 )
 
-data class ControlPlaneSessionInfo(
-    val accessToken: String,
-    val account: Account
-)
-
-data class Account(
-    val label: String,
-    val id: String
-)
-
 data class FileStats(
     val lastModified: Long,
     val size: Long
@@ -186,6 +176,8 @@ interface IDE {
     suspend fun fileExists(filepath: String): Boolean
 
     suspend fun writeFile(path: String, contents: String)
+
+    suspend fun removeFile(path: String)
 
     suspend fun showVirtualFile(title: String, contents: String)
 

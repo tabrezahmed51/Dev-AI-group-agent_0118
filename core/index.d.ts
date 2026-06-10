@@ -2,7 +2,11 @@ import {
   DataDestination,
   ModelRole,
   PromptTemplates,
+  ToolOverrideConfig,
 } from "@continuedev/config-yaml";
+import { ToolPolicy } from "@continuedev/terminal-security";
+import { McpUiResourceMeta } from "@modelcontextprotocol/ext-apps";
+import { TextResourceContents } from "@modelcontextprotocol/sdk/types.js";
 import Parser from "web-tree-sitter";
 import { CodebaseIndexer } from "./indexing/CodebaseIndexer";
 import { LLMConfigurationStatuses } from "./llm/constants";
@@ -267,6 +271,11 @@ export interface IContextProvider {
   get deprecationMessage(): string | null;
 }
 
+export interface SessionUsage extends Usage {
+  /** Total cumulative cost in USD for all LLM API calls in this session */
+  totalCost: number;
+}
+
 export interface Session {
   sessionId: string;
   title: string;
@@ -276,6 +285,8 @@ export interface Session {
   mode?: MessageModes;
   /** Optional: title of the selected chat model for this session */
   chatModelTitle?: string | null;
+  /** Optional: cumulative usage and cost for all LLM API calls in this session */
+  usage?: SessionUsage;
 }
 
 export interface BaseSessionMetadata {
@@ -283,6 +294,7 @@ export interface BaseSessionMetadata {
   title: string;
   dateCreated: string;
   workspaceDirectory: string;
+  messageCount?: number;
 }
 
 export interface RangeInFile {
@@ -490,6 +502,16 @@ export type ToolStatus =
   | "done" // Tool execution completed successfully
   | "canceled"; // Tool call was canceled by user or system
 
+interface McpUiResourceContents extends TextResourceContents {
+  _meta?: {
+    ui?: McpUiResourceMeta;
+  };
+}
+
+interface McpUiState {
+  content: McpUiResourceContents;
+}
+
 // Will exist only on "assistant" messages with tool calls
 interface ToolCallState {
   toolCallId: string;
@@ -499,6 +521,7 @@ interface ToolCallState {
   processedArgs?: Record<string, any>; // Added in preprocesing step
   output?: ContextItem[];
   tool?: Tool;
+  mcpUiState?: McpUiState;
 }
 
 interface Reasoning {
@@ -644,7 +667,6 @@ export interface LLMOptions {
   apiKeyLocation?: string;
   envSecretLocations?: Record<string, string>;
   apiBase?: string;
-  orgScopeId?: string | null;
 
   onPremProxyUrl?: string | null;
 
@@ -654,6 +676,7 @@ export interface LLMOptions {
   roles?: ModelRole[];
 
   useLegacyCompletionsEndpoint?: boolean;
+  useResponsesApi?: boolean;
 
   // Embedding options
   embeddingId?: string;
@@ -687,6 +710,9 @@ export interface LLMOptions {
 
   sourceFile?: string;
   isFromAutoDetect?: boolean;
+
+  /** Tool overrides for this model */
+  toolOverrides?: ToolOverride[];
 }
 
 type RequireAtLeastOne<T, Keys extends keyof T = keyof T> = Pick<
@@ -833,6 +859,8 @@ export interface IDE {
   fileExists(fileUri: string): Promise<boolean>;
 
   writeFile(path: string, contents: string): Promise<void>;
+
+  removeFile(path: string): Promise<void>;
 
   showVirtualFile(title: string, contents: string): Promise<void>;
 
@@ -1000,7 +1028,6 @@ export type ContextProviderName =
   | "currentFile"
   | "greptile"
   | "outline"
-  | "continue-proxy"
   | "highlights"
   | "file"
   | "issue"
@@ -1095,6 +1122,13 @@ export interface ToolExtras {
   codeBaseIndexer?: CodebaseIndexer;
 }
 
+export interface McpToolMeta {
+  ui?: {
+    resourceUri?: string;
+  };
+  "ui/resourceUri"?: string;
+}
+
 export interface Tool {
   type: "function";
   function: {
@@ -1130,7 +1164,17 @@ export interface Tool {
     parsedArgs: Record<string, unknown>,
     processedArgs?: Record<string, unknown>,
   ) => ToolPolicy;
+  mcpMeta?: McpToolMeta;
 }
+
+/**
+ * Configuration for overriding built-in tool prompts.
+ * Extends ToolOverrideConfig with required name for array usage.
+ */
+export type ToolOverride = ToolOverrideConfig & {
+  /** Tool name to override (matches function.name, e.g., "read_file") */
+  name: string;
+};
 
 interface ToolChoice {
   type: "function";
@@ -1142,12 +1186,12 @@ interface ToolChoice {
 export interface ConfigDependentToolParams {
   rules: RuleWithSource[];
   enableExperimentalTools: boolean;
-  isSignedIn: boolean;
   isRemote: boolean;
   modelName: string | undefined;
+  ide: IDE;
 }
 
-export type GetTool = (params: ConfigDependentToolParams) => Tool;
+export type GetTool = (params: ConfigDependentToolParams) => Promise<Tool>;
 
 export interface BaseCompletionOptions {
   temperature?: number;
@@ -1189,7 +1233,6 @@ export interface ModelDescription {
   apiBase?: string;
   apiKeyLocation?: string;
   envSecretLocations?: Record<string, string>;
-  orgScopeId?: string | null;
 
   onPremProxyUrl?: string | null;
 
@@ -1209,6 +1252,9 @@ export interface ModelDescription {
 
   sourceFile?: string;
   isFromAutoDetect?: boolean;
+
+  /** Tool overrides for this model */
+  toolOverrides?: ToolOverride[];
 }
 
 export interface JSONEmbedOptions {
@@ -1321,9 +1367,6 @@ export interface MCPPrompt {
   arguments?: MCPPromptArgs;
 }
 
-// Leaving here to ideate on
-// export type ContinueConfigSource = "local-yaml" | "local-json" | "hub-assistant" | "hub"
-
 // https://modelcontextprotocol.io/docs/concepts/resources#direct-resources
 export interface MCPResource {
   name: string;
@@ -1347,6 +1390,7 @@ export interface MCPTool {
     type: "object";
     properties?: Record<string, any>;
   };
+  _meta?: Record<string, unknown> | undefined;
 }
 
 type BaseInternalMCPOptions = {
@@ -1510,6 +1554,7 @@ export interface RangeInFileWithNextEditInfo {
   filepath: string;
   range: Range;
   fileContents: string;
+  fileContentsBefore: string;
   editText: string;
   afterCursorPos: Position;
   beforeCursorPos: Position;
@@ -1672,6 +1717,7 @@ export interface JSONModelDescription {
   maxStopWords?: number;
   template?: TemplateType;
   completionOptions?: BaseCompletionOptions;
+  capabilities?: ModelCapability;
   systemMessage?: string;
   requestOptions?: RequestOptions;
   cacheBehavior?: CacheBehavior;
@@ -1686,6 +1732,7 @@ export interface JSONModelDescription {
   accountId?: string;
   aiGatewaySlug?: string;
   useLegacyCompletionsEndpoint?: boolean;
+  useResponsesApi?: boolean;
   deploymentId?: string;
   isFromAutoDetect?: boolean;
 }
@@ -1810,7 +1857,6 @@ export interface BrowserSerializedContinueConfig {
   tools: Omit<Tool, "preprocessArgs", "evaluateToolCallPolicy">[];
   mcpServerStatuses: MCPServerStatus[];
   rules: RuleWithSource[];
-  usePlatform: boolean;
   tabAutocompleteOptions?: Partial<TabAutocompleteOptions>;
   modelsByRole: Record<ModelRole, ModelDescription[]>;
   selectedModelByRole: Record<ModelRole, ModelDescription | null>;
@@ -1885,6 +1931,15 @@ export interface RuleMetadata {
 }
 export interface RuleWithSource extends RuleMetadata {
   rule: string;
+}
+
+export interface Skill {
+  name: string;
+  description: string;
+  path: string;
+  content: string;
+  files: string[];
+  license?: string;
 }
 
 export interface CompleteOnboardingPayload {

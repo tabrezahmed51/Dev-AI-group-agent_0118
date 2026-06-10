@@ -1,12 +1,10 @@
 import { KeyIcon } from "@heroicons/react/24/outline";
 import { OnboardingModes } from "core/protocol/core";
-import ContinueSignet from "../../svg/ContinueSignet";
 import OllamaLogo from "../../svg/OllamaLogo";
 
 interface OnboardingCardTabsProps {
   activeTab: OnboardingModes;
   onTabClick: (tabName: OnboardingModes) => void;
-  showFreeTrialExceededAlert?: boolean;
 }
 
 const renderTabButton = (
@@ -22,7 +20,7 @@ const renderTabButton = (
       <button
         className={baseButtonClass}
         key={tabTitle}
-        onClick={() => onTabClick(tabTitle as OnboardingModes)}
+        onClick={() => onTabClick(tabTitle)}
         data-testid={`onboarding-tab-${tabTitle}`}
       >
         <KeyIcon className="-mb-0.5 mr-2 h-4 w-4" />
@@ -36,25 +34,11 @@ const renderTabButton = (
       <button
         className={baseButtonClass}
         key={tabTitle}
-        onClick={() => onTabClick(tabTitle as OnboardingModes)}
+        onClick={() => onTabClick(tabTitle)}
         data-testid={`onboarding-tab-${tabTitle}`}
       >
         <OllamaLogo width={18} height={18} className="-mb-0.5 mr-2" />
         {tabTitle}
-      </button>
-    );
-  }
-
-  if (tabTitle === OnboardingModes.MODELS_ADD_ON) {
-    return (
-      <button
-        className={`${baseButtonClass} -ml-1.5`}
-        key={tabTitle}
-        onClick={() => onTabClick(tabTitle as OnboardingModes)}
-        data-testid={`onboarding-tab-${tabTitle}`}
-      >
-        <ContinueSignet width={32} height={32} className="-mb-2.5" />
-        Credits
       </button>
     );
   }
@@ -68,27 +52,8 @@ const renderTabButton = (
 export function OnboardingCardTabs({
   activeTab,
   onTabClick,
-  showFreeTrialExceededAlert,
 }: OnboardingCardTabsProps) {
-  /**
-   * When users initially install, we only render these tabs after they've
-   * declined the free trial, so we show the upgrade tab last since they've
-   * indicated they want don't want to use the Hub.
-   *
-   * If `showFreeTrialExceededAlert` is true, they've used the Hub, so show
-   * upgrade first.
-   */
-  const tabs = showFreeTrialExceededAlert
-    ? [
-        OnboardingModes.MODELS_ADD_ON,
-        OnboardingModes.API_KEY,
-        OnboardingModes.LOCAL,
-      ]
-    : [
-        OnboardingModes.API_KEY,
-        OnboardingModes.LOCAL,
-        OnboardingModes.MODELS_ADD_ON,
-      ];
+  const tabs = [OnboardingModes.API_KEY, OnboardingModes.LOCAL];
   return (
     <div>
       <div className="hidden sm:block">

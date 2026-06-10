@@ -52,15 +52,15 @@ const saveSubsetFilters = [
     "codeToEdit",
   ]),
   createFilter("config", []),
-  createFilter("ui", ["toolSettings", "toolGroupSettings", "ruleSettings"]),
+  createFilter("ui", [
+    "toolSettings",
+    "toolGroupSettings",
+    "ruleSettings",
+    "reasoningSettings",
+  ]),
   createFilter("indexing", []),
   createFilter("tabs", ["tabs"]),
-  createFilter("profiles", [
-    "preferencesByProfileId",
-    "selectedProfileId",
-    "selectedOrganizationId",
-    "organizations",
-  ]),
+  createFilter("profiles", ["preferencesByProfileId", "selectedProfileId"]),
 ];
 
 const migrations: MigrationManifest = {

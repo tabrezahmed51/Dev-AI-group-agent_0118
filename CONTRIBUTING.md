@@ -65,7 +65,7 @@ an enhancement are:
   - If not, [create an issue](https://github.com/continuedev/continue/issues)
   - Please describe the enhancement in as much detail as you can, and why it would be useful
 
-- Join the [Continue Discord](https://discord.gg/NWtdYexhMs) and tell us about your idea in the `#feedback` channel
+- Join the [GitHub Discussions](https://github.com/continuedev/continue/discussions) and tell us about your idea
 
 ## 📖 Updating / Improving Documentation
 
@@ -79,7 +79,7 @@ You can run the documentation server locally using either of the following metho
 
 #### Method 1: NPM Script
 
-1. Open your terminal and navigate to the `docs` subdirectory of the project. The `docusaurus.config.js` file you'll see
+1. Open your terminal and navigate to the `docs` subdirectory of the project. The `favicon.png` file you'll see
    there is a sign you're in the right place.
 
 2. Run the following command to install the necessary dependencies for the documentation server:
@@ -91,7 +91,7 @@ You can run the documentation server locally using either of the following metho
 3. Run the following command to start the documentation server:
 
    ```bash
-   npm run start
+   npm run dev
    ```
 
 #### Method 2: VS Code Task
@@ -115,7 +115,7 @@ process as welcoming and straightforward as possible.
 
 #### Pre-requisites
 
-You should have Node.js version 20.19.0 (LTS) or higher installed. You can get it
+You should have Node.js version 20.20.1 (LTS) or higher installed. You can get it
 on [nodejs.org](https://nodejs.org/en/download) or, if you are using NVM (Node Version Manager), you can set the correct
 version of Node.js for this project by running the following command in the root of the project:
 
@@ -233,7 +233,7 @@ When contributing, please update or create the appropriate tests to help verify 
 
 ### Getting Help
 
-Join [#contribute on Discord](https://discord.gg/vapESyrFmJ) to engage with maintainers and other contributors.
+Join the [GitHub Discussions](https://github.com/continuedev/continue/discussions) to engage with maintainers and other contributors.
 
 ## Contributing New LLM Providers/Models
 
