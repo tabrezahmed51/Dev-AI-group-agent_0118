@@ -62,7 +62,7 @@
     "@opentelemetry/instrumentation-fs": "^0.23.0",
     "@opentelemetry/instrumentation-http": "^0.203.0",
     "@opentelemetry/resources": "^2.0.1",
-    "@opentelemetry/sdk-node": "^0.203.0",
+    "@opentelemetry/sdk-node": "^0.221.0",
     "@opentelemetry/semantic-conventions": "^1.36.0",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/git": "^10.0.1",
